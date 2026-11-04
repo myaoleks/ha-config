@@ -1,0 +1,286 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+recorder:
+  purge_keep_days: 7
+  auto_purge: true
+  commit_interval: 20 # Записуємо на диск пачками раз на 20 сек (зменшує навантаження на SSD та RAM)
+  exclude:
+    # 1. Домени, історія яких не потрібна на графіках
+    domains:
+      - button
+      - update
+      - scene
+
+    # 2. Мережевий шум Zigbee2MQTT (звільняє до 30% бази)
+    entity_globs:
+      - sensor.*_lqi
+      - sensor.*_linkquality
+      - sensor.*_rssi
+
+     # Фільтрація високочастотного шуму EcoFlow Delta 2 та Delta 2 Max:
+      - sensor.delta_2*remain*time*   # Прогнозований час розряду/заряду (шалений спам у БД)
+      - sensor.delta_2*temp*          # Температури осередків, інвертора та плат
+      - sensor.delta_2*cell*          # Дані окремих комірок акумулятора
+      - sensor.delta_2*voltage*       # Напруги комірок та модулів
+      - sensor.delta_2*current*       # Струми на осередках
+      - sensor.delta_2*cycles*        # Кількість циклів (статичні дані)
+      
+    # 3. Високочастотні статичні сутності щитка TOMZN (звільняє до 15 000 записів/день)
+    entities:
+      - sensor.vvidnii_shchitok_chastota
+      - sensor.vvidnii_shchitok_strum_vitoku
+      - binary_sensor.vvidnii_shchitok_problema
+      - binary_sensor.boiler_problema
+      - binary_sensor.river_600_in_problema
+      - binary_sensor.garderobna_enerdzhivampir_problema
+
+homeassistant:
+  customize:
+    sensor.pralka_energy:
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: 'kWh'
+
+system_log:
+  max_entries: 50
+  fire_event: true
+
+# ЄДИНИЙ БЛОК ДЛЯ ВСІХ ШАБЛОНІВ
+template:
+  # 1. Тригерні сенсори системного журналу (ЗІ СКИДАННЯМ ЧЕРЕЗ КНОПКУ)
+  - trigger:
+      - trigger: event
+        event_type: system_log_event
+        id: log_event
+      - trigger: state
+        entity_id: input_button.skidannia_logiv
+        id: reset_event
+    sensor:
+      - name: "System Log Error"
+        unique_id: system_log_error_counter
+        state: >
+          {% if trigger.id == 'reset_event' %}
+            0
+          {% elif trigger.event.data.level == 'ERROR' %}
+            {{ (this.state | int(0)) + 1 }}
+          {% else %}
+            {{ this.state | int(0) }}
+          {% endif %}
+        attributes:
+          message: >
+            {% if trigger.id == 'reset_event' %}
+              Журнал очищено
+            {% else %}
+              {{ trigger.event.data.message[0] | default('Останній запис відсутній') }}
+            {% endif %}
+          source: >
+            {% if trigger.id == 'reset_event' %}
+              Система
+            {% else %}
+              {{ trigger.event.data.source | default('Система') }}
+            {% endif %}
+          timestamp: "{{ now().isoformat() }}"
+        icon: mdi:alert-circle
+
+      - name: "System Log Warning"
+        unique_id: system_log_warning_counter
+        state: >
+          {% if trigger.id == 'reset_event' %}
+            0
+          {% elif trigger.event.data.level == 'WARNING' %}
+            {{ (this.state | int(0)) + 1 }}
+          {% else %}
+            {{ this.state | int(0) }}
+          {% endif %}
+        attributes:
+          message: >
+            {% if trigger.id == 'reset_event' %}
+              Журнал очищено
+            {% else %}
+              {{ trigger.event.data.message[0] | default('Останній запис відсутній') }}
+            {% endif %}
+          timestamp: "{{ now().isoformat() }}"
+        icon: mdi:alert
+# Фоновий збір прогнозу кожні 4 години з готовими іконками неба
+  - trigger:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+    action:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.forecast_golovna
+        data:
+          type: hourly
+        response_variable: hourly_data
+    sensor:
+      - name: "Погода: Прогноз кожні 4 години"
+        unique_id: weather_forecast_every_4h
+        state: "{{ now().strftime('%H:%M') }}"
+        attributes:
+          # +4 години
+          time4: >-
+            {% set f = hourly_data['weather.forecast_golovna'].forecast[4] | default({}) %}
+            {{ as_timestamp(f.datetime) | timestamp_custom('%H:%M') if f.datetime is defined else '+4г' }}
+          temp4: >-
+            {{ (hourly_data['weather.forecast_golovna'].forecast[4].temperature | default('?')) ~ '°C' }}
+          icon4: >-
+            {% set c = hourly_data['weather.forecast_golovna'].forecast[4].condition | default('') %}
+            {% set m = {'clear-night':'mdi:weather-night','cloudy':'mdi:weather-cloudy','fog':'mdi:weather-fog','partlycloudy':'mdi:weather-partly-cloudy','pouring':'mdi:weather-pouring','rainy':'mdi:weather-rainy','snowy':'mdi:weather-snowy','sunny':'mdi:weather-sunny','windy':'mdi:weather-windy'} %}
+            {{ m.get(c, 'mdi:weather-partly-cloudy') }}
+
+          # +8 годин
+          time8: >-
+            {% set f = hourly_data['weather.forecast_golovna'].forecast[8] | default({}) %}
+            {{ as_timestamp(f.datetime) | timestamp_custom('%H:%M') if f.datetime is defined else '+8г' }}
+          temp8: >-
+            {{ (hourly_data['weather.forecast_golovna'].forecast[8].temperature | default('?')) ~ '°C' }}
+          icon8: >-
+            {% set c = hourly_data['weather.forecast_golovna'].forecast[8].condition | default('') %}
+            {% set m = {'clear-night':'mdi:weather-night','cloudy':'mdi:weather-cloudy','fog':'mdi:weather-fog','partlycloudy':'mdi:weather-partly-cloudy','pouring':'mdi:weather-pouring','rainy':'mdi:weather-rainy','snowy':'mdi:weather-snowy','sunny':'mdi:weather-sunny','windy':'mdi:weather-windy'} %}
+            {{ m.get(c, 'mdi:weather-partly-cloudy') }}
+
+          # +12 годин
+          time12: >-
+            {% set f = hourly_data['weather.forecast_golovna'].forecast[12] | default({}) %}
+            {{ as_timestamp(f.datetime) | timestamp_custom('%H:%M') if f.datetime is defined else '+12г' }}
+          temp12: >-
+            {{ (hourly_data['weather.forecast_golovna'].forecast[12].temperature | default('?')) ~ '°C' }}
+          icon12: >-
+            {% set c = hourly_data['weather.forecast_golovna'].forecast[12].condition | default('') %}
+            {% set m = {'clear-night':'mdi:weather-night','cloudy':'mdi:weather-cloudy','fog':'mdi:weather-fog','partlycloudy':'mdi:weather-partly-cloudy','pouring':'mdi:weather-pouring','rainy':'mdi:weather-rainy','snowy':'mdi:weather-snowy','sunny':'mdi:weather-sunny','windy':'mdi:weather-windy'} %}
+            {{ m.get(c, 'mdi:weather-partly-cloudy') }}
+
+          # +16 годин
+          time16: >-
+            {% set f = hourly_data['weather.forecast_golovna'].forecast[16] | default({}) %}
+            {{ as_timestamp(f.datetime) | timestamp_custom('%H:%M') if f.datetime is defined else '+16г' }}
+          temp16: >-
+            {{ (hourly_data['weather.forecast_golovna'].forecast[16].temperature | default('?')) ~ '°C' }}
+          icon16: >-
+            {% set c = hourly_data['weather.forecast_golovna'].forecast[16].condition | default('') %}
+            {% set m = {'clear-night':'mdi:weather-night','cloudy':'mdi:weather-cloudy','fog':'mdi:weather-fog','partlycloudy':'mdi:weather-partly-cloudy','pouring':'mdi:weather-pouring','rainy':'mdi:weather-rainy','snowy':'mdi:weather-snowy','sunny':'mdi:weather-sunny','windy':'mdi:weather-windy'} %}
+            {{ m.get(c, 'mdi:weather-partly-cloudy') }}"
+  # 2. Звичайні сенсори енергії та потужності (БЕЗ ЗМІН)
+  - sensor:
+      # Енергія розетки EcoFlow River (Wh -> kWh)
+      - name: "River 600W Розетка Енергія"
+        unique_id: river_600w_rozetka_energy_kwh
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        state: >-
+          {{ (states('sensor.river_600_in_energy') | float(0) / 1000) | round(3) }}
+
+      # Енергія розетки Холодильника (Wh -> kWh) із захистом від скидання
+      - name: "ЕнерджіВампір Енергія"
+        unique_id: enerdzhivampir_energy_kwh
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        availability: >-
+          {{ states('sensor.garderobna_enerdzhivampir_energy') not in ['unknown', 'unavailable', 'none'] }}
+        state: >-
+          {{ (states('sensor.garderobna_enerdzhivampir_energy') | float / 1000) | round(3) }}
+
+      # Миттєва неврахована потужність (чистий залишок квартири)
+      - name: "Неврахована потужність"
+        unique_id: nevrakhovana_potuzhnist_live
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: "mdi:lightning-bolt-circle"
+        state: >-
+          {# Загальна потужність щитка у Вт #}
+          {% set total_w = (states('sensor.vvidnii_shchitok_zhivlennia') | float(0) * 1000) %}
+          
+          {# Відомі споживачі у Вт #}
+          {% set boiler_w = states('sensor.boiler_zhivlennia') | float(0) %}
+          {% set pralka_w = states('sensor.pralka_zhivlennia') | float(0) %}
+          {% set river_w = states('sensor.river_600_in_zhivlennia') | float(0) %}
+          {% set vampire_w = states('sensor.garderobna_enerdzhivampir_zhivlennia') | float(0) %}
+          
+          {# Чистий залишок квартири #}
+          {% set unaccounted = total_w - boiler_w - pralka_w - river_w - vampire_w %}
+          
+          {{ [unaccounted | round(0), 0] | max }}
+        # Розрахунок заряду ZEGOR 2400 від вибраного початкового відсотка
+      - name: "ZEGOR 2400 Заряд батареї"
+        unique_id: zegor_2400_battery_level
+        unit_of_measurement: "%"
+        device_class: battery
+        icon: "mdi:battery-charging"
+        state: >-
+          {% set start_soc = states('input_number.zegor_pochatkovii_zariad') | float(70) %}
+          {% set start_kwh = states('input_number.zegor_startovi_kvt') | float(0) %}
+          {% set current_kwh = states('sensor.stantsiia_zegor_energiia') | float(0) %}
+          
+          {# Скільки кВт·год квартира витягнула з моменту старту #}
+          {% set used_kwh = [ (current_kwh - start_kwh), 0 ] | max %}
+          
+          {# Корисна ємність по 220V = 2.35 кВт·год #}
+          {% set max_usable_kwh = 2.35 %}
+          
+          {# Віднімаємо витрачені відсотки від початкового заряду #}
+          {% set remaining_soc = start_soc - ((used_kwh / max_usable_kwh) * 100) %}
+          {{ [ [remaining_soc | round(1), 0] | max, 100 ] | min }}
+
+      # 1. Залишок днів до заміни
+      - name: "Фільтр води: Днів до заміни"
+        unique_id: filtr_vodi_dniv_do_zaminy
+        icon: mdi:calendar-clock
+        unit_of_measurement: "дн"
+        state: >
+          {% set start = states('input_datetime.data_ostannoi_zaminy_filtra_vodi') %}
+          {% set max_d = states('input_number.resurs_filtra_vodi_dniv') | int(45) %}
+          {% if start not in ['unknown', 'unavailable', ''] and as_timestamp(start) is not none %}
+            {% set passed = ((as_timestamp(now()) - as_timestamp(start)) / 86400) | int %}
+            {{ [max_d - passed, 0] | max }}
+          {% else %}
+            {{ max_d }}
+          {% endif %}
+
+      # 2. Залишок ресурсу у відсотках
+      - name: "Фільтр води: Залишок ресурсу"
+        unique_id: filtr_vodi_zalyshok_resursu
+        icon: mdi:water-filter
+        unit_of_measurement: "%"
+        state: >
+          {% set start = states('input_datetime.data_ostannoi_zaminy_filtra_vodi') %}
+          {% set max_d = states('input_number.resurs_filtra_vodi_dniv') | int(45) %}
+          {% if start not in ['unknown', 'unavailable', ''] and as_timestamp(start) is not none %}
+            {% set passed = ((as_timestamp(now()) - as_timestamp(start)) / 86400) | int %}
+            {% set left = ((max_d - passed) / max_d * 100) | round(0) %}
+            {{ [left, 0] | max }}
+          {% else %}
+            100
+          {% endif %}
+
+      # 3. Розрахунковий об'єм води через картридж
+      - name: "Фільтр води: Пропущено води"
+        unique_id: filtr_vodi_propushcheno_vody
+        icon: mdi:counter
+        unit_of_measurement: "м³"
+        state: >
+          {% set start = states('input_datetime.data_ostannoi_zaminy_filtra_vodi') %}
+          {% if start not in ['unknown', 'unavailable', ''] and as_timestamp(start) is not none %}
+            {% set passed = ((as_timestamp(now()) - as_timestamp(start)) / 86400) | int %}
+            {{ (passed * 0.37) | round(1) }}
+          {% else %}
+            0.0
+          {% endif %}
+
+logger:
+  default: warning
+  logs:
+    custom_components.tuya_local: critical

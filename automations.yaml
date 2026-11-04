@@ -1,0 +1,1163 @@
+- id: '1788192830765'
+  alias: 'Вентиляція: Автовимкнення витяжки в туалеті через 4 хв'
+  description: Автоматично вимикає реле витяжки після 4 хвилин безперервної роботи
+  triggers:
+  - entity_id: switch.ventiliatort_vimikach_1
+    to: 'on'
+    trigger: state
+  conditions: []
+  actions:
+  - delay:
+      minutes: 4
+  - action: switch.turn_off
+    target:
+      entity_id: switch.ventiliatort_vimikach_1
+  mode: restart
+- id: '1788194060757'
+  alias: 'Бойлер: Розклад + Захист мережі + Резервне живлення'
+  description: Оптимізований графік (Ніч 04:00-07:00, 23:00-00:30; Вечір 19:30-21:30)
+    з захистом по напрузі, потужності та блокуванням у режимі блекауту
+  triggers:
+  - entity_id: sensor.vvidnii_shchitok_zhivlennia
+    above: 6
+    for:
+      seconds: 5
+    id: turn_off_event
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    below: 190
+    id: turn_off_event
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    to:
+    - unavailable
+    - unknown
+    id: turn_off_event
+    trigger: state
+  - trigger: state
+    entity_id: input_boolean.rezhim_blekautu
+    to: 'on'
+    id: turn_off_event
+  - at: 07:00:00
+    id: turn_off_event
+    trigger: time
+  - at: '21:30:00'
+    id: turn_off_event
+    trigger: time
+  - at: 00:30:00
+    id: turn_off_event
+    trigger: time
+  - at: 04:00:00
+    id: try_turn_on
+    trigger: time
+  - at: '19:30:00'
+    id: try_turn_on
+    trigger: time
+  - at: '23:00:00'
+    id: try_turn_on
+    trigger: time
+  - entity_id: sensor.vvidnii_shchitok_zhivlennia
+    below: 3.5
+    for:
+      minutes: 1
+    id: try_turn_on
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    above: 195
+    for:
+      minutes: 1
+    id: try_turn_on
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    from:
+    - unavailable
+    - unknown
+    for:
+      minutes: 1
+    id: try_turn_on
+    trigger: state
+  - event: start
+    id: try_turn_on
+    trigger: homeassistant
+  - trigger: state
+    entity_id: input_boolean.rezhim_blekautu
+    to: 'off'
+    id: try_turn_on
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: turn_off_event
+      sequence:
+      - target:
+          entity_id: switch.boiler
+        action: switch.turn_off
+    - conditions:
+      - condition: trigger
+        id: try_turn_on
+      - condition: state
+        entity_id: input_boolean.rezhim_blekautu
+        state: 'off'
+      - condition: or
+        conditions:
+        - condition: time
+          after: 04:00:00
+          before: 07:00:00
+        - condition: time
+          after: '19:30:00'
+          before: '21:30:00'
+        - condition: time
+          after: '23:00:00'
+          before: 00:30:00
+      - condition: numeric_state
+        entity_id: sensor.vvidnii_shchitok_napruga
+        above: 190
+      - condition: or
+        conditions:
+        - condition: and
+          conditions:
+          - condition: state
+            entity_id: switch.boiler
+            state: 'on'
+          - condition: numeric_state
+            entity_id: sensor.vvidnii_shchitok_zhivlennia
+            below: 6
+        - condition: and
+          conditions:
+          - condition: state
+            entity_id: switch.boiler
+            state: 'off'
+          - condition: numeric_state
+            entity_id: sensor.vvidnii_shchitok_zhivlennia
+            below: 3.8
+      sequence:
+      - target:
+          entity_id: switch.boiler
+        action: switch.turn_on
+    default:
+    - target:
+        entity_id: switch.boiler
+      action: switch.turn_off
+  mode: restart
+- id: '1788196072682'
+  alias: 'Електромережа: Превентивні сповіщення TOMZN'
+  description: Попереджає про наближення до критичних меж до спрацювання захисту
+  triggers:
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    above: 245
+    for:
+      seconds: 10
+    id: warn_high_voltage
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    below: 195
+    for:
+      seconds: 10
+    id: warn_low_voltage
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    above: 200
+    below: 240
+    for:
+      seconds: 30
+    id: normal_voltage
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_zhivlennia
+    above: 6000
+    for:
+      seconds: 30
+    id: warn_overload
+    trigger: numeric_state
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: warn_high_voltage
+      sequence:
+      - data:
+          title: ⚠️ Напруга зростає!
+          message: Вже {{ states('sensor.vvidnii_shchitok_napruga') }} В. Наближається
+            до межі відключення (253 В).
+          data:
+            tag: grid_voltage_alert
+            ttl: 0
+            priority: high
+        action: notify.mobile_app_cph2737
+    - conditions:
+      - condition: trigger
+        id: warn_low_voltage
+      sequence:
+      - data:
+          title: ⚠️ Напруга падає!
+          message: Вже {{ states('sensor.vvidnii_shchitok_napruga') }} В. Просідає
+            до межі відключення (183 В).
+          data:
+            tag: grid_voltage_alert
+            ttl: 0
+            priority: high
+        action: notify.mobile_app_cph2737
+    - conditions:
+      - condition: trigger
+        id: normal_voltage
+      sequence:
+      - data:
+          title: ✅ Напруга стабілізувалася
+          message: 'Параметри в нормі: {{ states(''sensor.vvidnii_shchitok_napruga'')
+            }} В.'
+          data:
+            tag: grid_voltage_alert
+        action: notify.mobile_app_cph2737
+    - conditions:
+      - condition: trigger
+        id: warn_overload
+      sequence:
+      - data:
+          title: '⚡ Увага: Високе навантаження!'
+          message: 'Споживання: {{ states(''sensor.vvidnii_shchitok_zhivlennia'')
+            }} Вт (Струм: {{ states(''sensor.vvidnii_shchitok_strum'') }} А). Вимкни
+            потужні прилади, щоб не вибило автомат 32А.'
+          data:
+            priority: high
+        action: notify.mobile_app_cph2737
+  mode: parallel
+  max: 10
+- id: '1788198348341'
+  alias: 'Сервер: Комплексний моніторинг живлення ультрабука'
+  description: Сповіщення про відключення 220V, відновлення живлення та критичний
+    розряд батареї
+  triggers:
+  - entity_id: binary_sensor.system_monitor_charging
+    to: 'off'
+    for:
+      seconds: 10
+    id: power_lost
+    trigger: state
+  - entity_id: binary_sensor.system_monitor_charging
+    to: 'on'
+    for:
+      seconds: 5
+    id: power_restored
+    trigger: state
+  - entity_id: sensor.system_monitor_battery
+    below: 25
+    for:
+      minutes: 1
+    id: low_battery
+    trigger: numeric_state
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: power_lost
+      sequence:
+      - data:
+          title: "\U0001F50B Сервер на батареї!"
+          message: 'Ультрабук відключено від мережі. Заряд: {{ states(''sensor.system_monitor_battery'')
+            }}%.'
+          data:
+            tag: server_power_status
+            priority: high
+        action: notify.mobile_app_cph2737
+    - conditions:
+      - condition: trigger
+        id: power_restored
+      sequence:
+      - data:
+          title: ⚡ Сервер підключено до мережі
+          message: Живлення відновлено, ультрабук заряджається ({{ states('sensor.system_monitor_battery')
+            }}%).
+          data:
+            tag: server_power_status
+        action: notify.mobile_app_cph2737
+    - conditions:
+      - condition: trigger
+        id: low_battery
+      sequence:
+      - data:
+          title: "\U0001FAAB Критичний заряд сервера!"
+          message: 'Заряд ультрабука менше 25% (зараз: {{ states(''sensor.system_monitor_battery'')
+            }}%). Підключи станцію або зарядне, щоб HA не вимкнувся!'
+          data:
+            priority: high
+            ttl: 0
+        action: notify.mobile_app_cph2737
+  mode: parallel
+  max: 5
+- id: switch_electricity_tariff
+  alias: 'Енергооблік: Перемикання тарифів День/Ніч'
+  description: Автоматичне перемикання зон лічильника о 23:00 та 07:00
+  triggers:
+  - at: '23:00:00'
+    id: to_night
+    trigger: time
+  - at: 07:00:00
+    id: to_day
+    trigger: time
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: to_night
+      sequence:
+      - action: select.select_option
+        target:
+          entity_id: select.merezha_dvozonnii
+        data:
+          option: night
+    - conditions:
+      - condition: trigger
+        id: to_day
+      sequence:
+      - action: select.select_option
+        target:
+          entity_id: select.merezha_dvozonnii
+        data:
+          option: day
+  mode: single
+- id: '1788475396829'
+  alias: 'Енергооблік: Перемикання тарифів День/Ніч'
+  description: Автоматичне перемикання зон лічильника о 23:00 та 07:00
+  triggers:
+  - trigger: time
+    at: '23:00:00'
+    id: to_night
+  - trigger: time
+    at: 07:00:00
+    id: to_day
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: to_night
+      sequence:
+      - action: select.select_option
+        target:
+          entity_id: select.merezha_dvozonnii
+        data:
+          option: night
+    - conditions:
+      - condition: trigger
+        id: to_day
+      sequence:
+      - action: select.select_option
+        target:
+          entity_id: select.merezha_dvozonnii
+        data:
+          option: day
+  mode: single
+- id: '1788904185874'
+  alias: 'River 600W: Розрахунок заряду та калібрування'
+  description: Динамічний приріст (дільник 14.22), реальний розряд із самоспоживанням
+    (-1.95%/15хв) та калібрування на 80%
+  triggers:
+  - trigger: time_pattern
+    minutes: /15
+  - trigger: numeric_state
+    entity_id: sensor.river_600_in_zhivlennia
+    below: 10
+    for:
+      minutes: 5
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.river_600_in_zhivlennia
+        below: 10
+      - condition: numeric_state
+        entity_id: sensor.river_600_in_zhivlennia
+        above: 0.1
+      sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.zariad_river_600
+        data:
+          value: 80
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.river_600_in_zhivlennia
+        above: 20
+      sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.zariad_river_600
+        data:
+          value: '{% set pwr = states(''sensor.river_600_in_zhivlennia'') | float(0)
+            %} {% set cur = states(''input_number.zariad_river_600'') | float(0) %}
+            {% set gained = pwr / 14.22 %} {{ [ (cur + gained) | round(0), 80 ] |
+            min }}'
+    - conditions:
+      - condition: template
+        value_template: "{{ states('sensor.river_600_in_zhivlennia') in ['unavailable',
+          'unknown'] \n   or states('sensor.river_600_in_zhivlennia') | float(0) <
+          1 }}"
+      sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.zariad_river_600
+        data:
+          value: '{{ [ (states(''input_number.zariad_river_600'') | float(80) - 3.08)
+            | round(1), 0 ] | max }}'
+  mode: single
+- id: '1788942460808'
+  alias: 'River 600W: Сповіщення про низький заряд та живлення'
+  description: Надсилає push-сповіщення на пристрій cph2737 при розряді або вимкненні
+    розетки
+  triggers:
+  - trigger: numeric_state
+    entity_id: input_number.zariad_river_600
+    below: 46
+    id: low_battery
+  - trigger: state
+    entity_id: sensor.river_600_in_zhivlennia
+    to: unavailable
+    for:
+      minutes: 5
+    id: plug_lost
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: low_battery
+      sequence:
+      - action: notify.mobile_app_cph2737
+        data:
+          title: '⚠️ EcoFlow River: Критичний заряд!'
+          message: Заряд River впав до {{ states('input_number.zariad_river_600')
+            }}%! Роутер, термінал і камера скоро згаснуть.
+          data:
+            ttl: 0
+            priority: high
+    - conditions:
+      - condition: trigger
+        id: plug_lost
+      sequence:
+      - action: notify.mobile_app_cph2737
+        data:
+          title: '⚠️ EcoFlow River: Втрата контакту з розеткою'
+          message: Розетка недоступна більше 5 хв. Перевір, чи добре вставлений штепсель!
+          data:
+            ttl: 0
+            priority: high
+  mode: single
+- id: '1788943914924'
+  alias: 'River 600W: Захист живлення розетки (Watchdog)'
+  description: Примусово тримає розетку увімкненою завжди, коли в місті є електроенергія
+  triggers:
+  - trigger: state
+    entity_id: switch.river_600_in
+    to: 'off'
+    for:
+      seconds: 5
+  - trigger: state
+    entity_id: switch.river_600_in
+    from:
+    - unavailable
+    - unknown
+    for:
+      seconds: 5
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: input_boolean.rezhim_blekautu
+    to: 'off'
+  conditions:
+  - condition: state
+    entity_id: input_boolean.rezhim_blekautu
+    state: 'off'
+  - condition: numeric_state
+    entity_id: sensor.vvidnii_shchitok_napruga
+    above: 190
+  actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.river_600_in
+  mode: restart
+- id: '1789034016958'
+  alias: 'Безпека: Сповіщення про витік води (закріплене)'
+  description: Тривога по воді з блокуванням змахування та миттєвим повтором при спробі
+    закрити
+  triggers:
+  - entity_id: binary_sensor.datchik_vitoku_vodi_water_leak
+    to: 'on'
+    id: leak_start
+    trigger: state
+  - event_type: mobile_app_notification_cleared
+    event_data:
+      tag: water_leak_alert
+    id: dismissed_by_user
+    trigger: event
+  - entity_id: binary_sensor.datchik_vitoku_vodi_water_leak
+    to: 'off'
+    id: leak_cleared
+    trigger: state
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: or
+        conditions:
+        - condition: trigger
+          id: leak_start
+        - condition: and
+          conditions:
+          - condition: trigger
+            id: dismissed_by_user
+          - condition: state
+            entity_id: binary_sensor.datchik_vitoku_vodi_water_leak
+            state: 'on'
+      sequence:
+      - action: notify.mobile_app_cph2737
+        data:
+          title: "\U0001F6A8 АВАРІЯ! ВИТІК ВОДИ НЕ УСУНЕНО!"
+          message: Датчик все ще у воді! Сповіщення не зникне, доки контакти не висохнуть.
+          data:
+            tag: water_leak_alert
+            persistent: true
+            sticky: true
+            channel: alarm_stream
+            importance: high
+            priority: high
+            ttl: 0
+            color: '#ff0000'
+            notification_icon: mdi:water-alert
+    - conditions:
+      - condition: trigger
+        id: leak_cleared
+      sequence:
+      - action: notify.mobile_app_cph2737
+        data:
+          message: clear_notification
+          data:
+            tag: water_leak_alert
+      - action: notify.mobile_app_cph2737
+        data:
+          title: ✅ Витік ліквідовано
+          message: Датчик води знову сухий. Все в нормі.
+  mode: restart
+- id: '1789035354269'
+  alias: 'Клімат: Розумна вентиляція у ванні (Derivative)'
+  description: Динамічний запуск витяжки по швидкості стрибка вологості з розумним
+    вимкненням по стабілізації/порогу та таймером безпеки
+  triggers:
+  - entity_id: sensor.vanna_datchik_klimatu_shvidkist_zmini_vologosti_u_vanni
+    above: 1.5
+    id: hum_spike
+    trigger: numeric_state
+  - entity_id: sensor.datchik_klimatu_humidity
+    above: 70
+    id: hum_high
+    trigger: numeric_state
+  - entity_id: sensor.datchik_klimatu_humidity
+    below: 50
+    for:
+      minutes: 1
+    id: hum_normal
+    trigger: numeric_state
+  - entity_id: sensor.vanna_datchik_klimatu_shvidkist_zmini_vologosti_u_vanni
+    above: -0.2
+    for:
+      minutes: 2
+    id: hum_stabilized
+    trigger: numeric_state
+  - entity_id: switch.ventiliatorv_vimikach_1
+    to: 'on'
+    for:
+      minutes: 25
+    id: safety_timeout
+    trigger: state
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: or
+        conditions:
+        - condition: trigger
+          id: hum_spike
+        - condition: trigger
+          id: hum_high
+      - condition: state
+        entity_id: switch.ventiliatorv_vimikach_1
+        state: 'off'
+      sequence:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.ventiliatorv_vimikach_1
+    - conditions:
+      - condition: state
+        entity_id: switch.ventiliatorv_vimikach_1
+        state: 'on'
+      - condition: or
+        conditions:
+        - condition: trigger
+          id: hum_normal
+        - condition: trigger
+          id: safety_timeout
+        - condition: and
+          conditions:
+          - condition: trigger
+            id: hum_stabilized
+          - condition: numeric_state
+            entity_id: sensor.datchik_klimatu_humidity
+            below: 65
+      sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.ventiliatorv_vimikach_1
+  mode: restart
+- id: '1789036104875'
+  alias: 'Клімат: Профілактичний продув ванної'
+  description: Освіжає повітря у ванні на 8 хвилин, якщо витяжка не вмикалася понад
+    12 годин
+  triggers:
+  - entity_id: switch.ventiliatorv_vimikach_1
+    to: 'off'
+    for:
+      hours: 12
+    trigger: state
+  - at: 09:00:00
+    trigger: time
+  conditions:
+  - condition: time
+    after: 09:00:00
+    before: '21:00:00'
+  - condition: state
+    entity_id: switch.ventiliatorv_vimikach_1
+    state: 'off'
+    for:
+      hours: 12
+  actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.ventiliatorv_vimikach_1
+  - delay:
+      minutes: 8
+  - action: switch.turn_off
+    target:
+      entity_id: switch.ventiliatorv_vimikach_1
+  mode: single
+- id: '1789038097437'
+  alias: 'Сервіс: Нагадування про заміну мішка РОБІК 2.0'
+  description: Щоденне ранкове сповіщення, починаючи з 85-го дня, поки дата не буде
+    оновлена
+  triggers:
+  - at: '10:00:00'
+    trigger: time
+  conditions:
+  - condition: template
+    value_template: "{% if states('input_datetime.data_zamini_mishka_pilososa') not
+      in ['unknown', 'unavailable'] %}\n  {% set install_date = as_datetime(states('input_datetime.data_zamini_mishka_pilososa'))
+      %}\n  {% set days = (as_datetime(now().strftime('%Y-%m-%d')) - install_date).days
+      %}\n  {{ days >= 85 }}\n{% else %}\n  false\n{% endif %}"
+  actions:
+  - action: notify.mobile_app_cph2737
+    data:
+      title: "{% set install_date = as_datetime(states('input_datetime.data_zamini_mishka_pilososa'))
+        %} {% set days = (as_datetime(now().strftime('%Y-%m-%d')) - install_date).days
+        %} {{ '\U0001F6A8 ЧАС ЗАМІНИТИ МІШОК!' if days >= 90 else '⏳ Заміна мішка
+        пилососа' }}"
+      message: '{% set install_date = as_datetime(states(''input_datetime.data_zamini_mishka_pilososa''))
+        %} {% set days = (as_datetime(now().strftime(''%Y-%m-%d'')) - install_date).days
+        %} Мішок РОБІК 2.0 стоїть уже {{ days }} дн. {% if days >= 90 %} Ресурс вичерпано
+        (понад 90 днів). Замініть мішок та скиньте лічильник на дашборді. {% else
+        %} Залишилося близько {{ 90 - days }} дн. Підготуйте новий мішок. {% endif
+        %}'
+      data:
+        tag: vacuum_dustbag_lifespan
+        notification_icon: mdi:delete-empty
+  mode: single
+- id: '1789126069787'
+  alias: 'Керування люстрою: Кнопка коридор'
+  description: Одинарний клік — увімкнути, подвійний клік — вимкнути люстру
+  triggers:
+  - topic: zigbee2mqtt/Вимикач світло прохідне (коридор)/action
+    payload: single
+    id: turn_on
+    trigger: mqtt
+  - topic: zigbee2mqtt/Вимикач світло прохідне (коридор)/action
+    payload: double
+    id: turn_off
+    trigger: mqtt
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: turn_on
+      sequence:
+      - target:
+          entity_id: switch.svitlo_prokhidne
+        action: switch.turn_on
+    - conditions:
+      - condition: trigger
+        id: turn_off
+      sequence:
+      - target:
+          entity_id: switch.svitlo_prokhidne
+        action: switch.turn_off
+  mode: restart
+- id: '1789250756391'
+  alias: 'Telegram Assist: Текстові команди'
+  description: Передає запити з Telegram у Gemini Assist із живим зрізом системи та
+    аналізом логів
+  triggers:
+  - event_type: telegram_text
+    trigger: event
+  conditions: []
+  actions:
+  - action: conversation.process
+    data:
+      agent_id: conversation.google_ai_conversation
+      text: "{# 1. АУДИТ АВТОМАТИЗАЦІЙ #} {% set never = states.automation | selectattr('attributes.last_triggered',
+        'none') | map(attribute='name') | list %} {% set ns = namespace(recent=[])
+        %} {% for a in states.automation | selectattr('attributes.last_triggered',
+        'defined') | rejectattr('attributes.last_triggered', 'none') | sort(attribute='attributes.last_triggered',
+        reverse=true) %}\n  {% if loop.index <= 4 %}\n    {% set t = as_timestamp(a.attributes.last_triggered)
+        | timestamp_custom('%d.%m %H:%M', true) %}\n    {% set ns.recent = ns.recent
+        + [a.name ~ ' (' ~ t ~ ')'] %}\n  {% endif %}\n{% endfor %}\n{# 2. СЕРВІС
+        ТА БАТАРЕЙКИ (Zigbee датчики < 25%) #} {% set low_bat_list = namespace(devices=[])
+        %} {% for s in states.sensor if s.attributes.device_class | default('') ==
+        'battery' and s.state not in ['unavailable', 'unknown'] and s.state | int(100)
+        < 25 %}\n  {% set low_bat_list.devices = low_bat_list.devices + [s.name ~
+        ': ' ~ s.state ~ '%'] %}\n{% endfor %}\n{# 3. ЕНЕРГЕТИКА ТА ПАРАМЕТРИ МЕРЕЖІ
+        #} {% set power_sensors = states.sensor \n  | selectattr('attributes.device_class',
+        'defined') \n  | selectattr('attributes.device_class', 'in', ['voltage', 'current',
+        'power', 'energy']) \n  | rejectattr('state', 'in', ['unavailable', 'unknown'])
+        %}\n{% set p_list = namespace(items=[]) %} {% for p in power_sensors %}\n
+        \ {% if loop.index <= 8 %}\n    {% set p_list.items = p_list.items + [p.name
+        ~ ': ' ~ p.state ~ ' ' ~ p.attributes.unit_of_measurement | default('')] %}\n
+        \ {% endif %}\n{% endfor %}\n{# 4. СЕРВІСНІ СЕНСОРИ РОБІКА #} {% set maint
+        = states.sensor \n  | selectattr('entity_id', 'search', 'robik|dust_bag|filter|maintenance')
+        \n  | rejectattr('state', 'in', ['unavailable', 'unknown']) \n  | map(attribute='name')
+        | list %}\n\n{# 5. ЖУРНАЛ СИСТЕМНИХ ПОМИЛОК ТА ПОПЕРЕДЖЕНЬ (Зріз із системного
+        логера) #} {% set log_err = states('sensor.system_log_error') | default('0')
+        %} {% set log_warn = states('sensor.system_log_warning') | default('0') %}
+        {% set last_err = state_attr('sensor.system_log_error', 'message') | default('Не
+        зафіксовано критичних збоїв') %}\n[ЖИВИЙ СИСТЕМНИЙ ЗРІЗ HOME ASSISTANT]: -
+        Автоматизації без запуску: {{ never | join(', ') if never | length > 0 else
+        'Усі запускалися' }} - Останні спрацювання: {{ ns.recent | join('; ') }} -
+        Мережа та живлення: {{ p_list.items | join('; ') if p_list.items | length
+        > 0 else 'Немає активних показників' }} - Батарейки Zigbee (<25%): {{ low_bat_list.devices
+        | join(', ') if low_bat_list.devices | length > 0 else 'Усі заряди в нормі'
+        }} - Статус сервісних ресурсів (РОБІК/фільтри): {{ maint | join(', ') if maint
+        | length > 0 else 'Дані відсутні' }} - Журнал системи: Помилок: {{ log_err
+        }}, Попереджень: {{ log_warn }}. Останній запис: {{ last_err }}\n[ІНСТРУКЦІЯ
+        ДЛЯ АНАЛІЗУ ПОМИЛОК]: Якщо у блоці логів зафіксовано помилки або попередження:
+        1. Зрозуміло поясни причину виникнення помилки (чому вона сталася). 2. Запропонуй
+        конкретні рекомендації або готовий фрагмент YAML-коду для усунення. 3. Нагадай,
+        що зміни слід внести вручну, оскільки ти працюєш у режимі Read-Only.\n[ЗАПИТ
+        КОРИСТУВАЧА]: {{ trigger.event.data.text }}"
+    response_variable: assist_response
+  - action: telegram_bot.send_message
+    data:
+      chat_id: '{{ trigger.event.data.chat_id }}'
+      message: '{{ assist_response.response.speech.plain.speech }}'
+      parse_mode: plain_text
+  mode: queued
+  max: 10
+- id: '1789259042386'
+  alias: 'Сервіс: Щотижневий інженерний аудит системи'
+  description: Щонеділі о 09:00 розширений аудит логів, місячної енергетики в гривнях
+    та витратників у Telegram
+  triggers:
+  - trigger: time
+    at: 09:00:00
+  conditions:
+  - condition: time
+    weekday:
+    - sun
+  actions:
+  - action: conversation.process
+    data:
+      agent_id: conversation.google_ai_conversation
+      text: "{# 1. ЕНЕРГЕТИКА ТА ФІНАНСИ ЗА МІСЯЦЬ #} {% set m_day = states('sensor.koridor_vkhid_vvidnii_shchitok_merezha_dvozonnii_day')
+        | float(0) | round(2) %} {% set m_night = states('sensor.koridor_vkhid_vvidnii_shchitok_merezha_dvozonnii_night')
+        | float(0) | round(2) %} {% set m_total = (m_day + m_night) | round(2) %}
+        {% set cost_day = (m_day * 4.32) | round(2) %} {% set cost_night = (m_night
+        * 2.16) | round(2) %} {% set cost_total = (cost_day + cost_night) | round(2)
+        %}\n{# Окремі прилади (накопичено) #} {% set e_boiler = states('sensor.tualet_boiler_energiia_rozrakhunok')
+        | float(0) | round(1) %} {% set e_washer = states('sensor.vanna_pralka_energiia_rozrakhunok')
+        | float(0) | round(2) %} {% set e_river = states('sensor.river_600w_rozetka_energiia')
+        | default('0') %} {% set e_vampire = states('sensor.enerdzhivampir_energiia')
+        | default('0') %}\n{# 2. СИСТЕМНІ ЛОГИ #} {% set log_err = states('sensor.system_log_error')
+        | default('0') %} {% set log_warn = states('sensor.system_log_warning') |
+        default('0') %} {% set last_err_msg = state_attr('sensor.system_log_error',
+        'message') | default('Помилок немає') %} {% set last_err_src = state_attr('sensor.system_log_error',
+        'source') | default('Невідомо') %}\n{# 3. ВИТРАТНИКИ РОБІКА ТА БАТАРЕЙКИ #}
+        {% set low_bat = namespace(devices=[]) %} {% for s in states.sensor if s.attributes.device_class
+        | default('') == 'battery' and s.state not in ['unavailable', 'unknown'] and
+        s.state | int(100) < 25 %}\n  {% set low_bat.devices = low_bat.devices + [s.name
+        ~ ': ' ~ s.state ~ '%'] %}\n{% endfor %}  {% set r = states('sensor.filtr_vodi_zalishok_resursu')
+        | int(100) %} {% if r > 40 %}\U0001F7E2{% elif r > 15 %}\U0001F7E1{% else
+        %}\U0001F534{% endif %} <b>Фільтр води:</b> {{ r }}% (залишилось {{ states('sensor.filtr_vodi_dniv_do_zamini')
+        }} дн. |  ~{{states('sensor.filtr_vodi_propushcheno_vodi') }} м³)\n{% set
+        robik_maint = namespace(items=[]) %} {% for s in states.sensor if ('robik'
+        in s.entity_id or 'dreame' in s.entity_id) and ('dust_bag' in s.entity_id
+        or 'filter' in s.entity_id or 'brush' in s.entity_id or 'sensor_dirty' in
+        s.entity_id or 'wheel_dirty' in s.entity_id) and ('time_left' not in s.entity_id)
+        and s.state not in ['unavailable', 'unknown'] %}\n  {% set robik_maint.items
+        = robik_maint.items + [s.name ~ ': ' ~ s.state ~ '%'] %}\n{% endfor %}\n{#
+        4. АВТОМАТИЗАЦІЇ #} {% set never = states.automation | selectattr('attributes.last_triggered',
+        'none') | map(attribute='name') | list %}\n[ТЕХНІЧНА ТЕЛЕМЕТРІЯ]: - Енергетика
+        за поточний місяць: Всього: {{ m_total }} kWh. День (4.32 грн): {{ m_day }}
+        kWh = {{ cost_day }} грн. Ніч (2.16 грн): {{ m_night }} kWh = {{ cost_night
+        }} грн. Разом за місяць: {{ cost_total }} грн. - Прилади (накопичено): Бойлер:
+        {{ e_boiler }} kWh, Пралка: {{ e_washer }} kWh, EcoFlow: {{ e_river }} kWh,
+        Холодильник: {{ e_vampire }} kWh. - Журнал помилок: Всього Errors: {{ log_err
+        }}, Warnings: {{ log_warn }}. Останній інцидент: [{{ last_err_src }}]: {{
+        last_err_msg }}. - Батарейки низькі: {{ low_bat.devices | join(', ') if low_bat.devices
+        | length > 0 else 'В нормі' }}. - Станція Dreame L40s: {{ robik_maint.items
+        | join('; ') }}. - Неактивні автоматизації: {{ never | join(', ') if never
+        | length > 0 else 'Усі запускалися' }}\n[ІНЖЕНЕРНЕ ЗАВДАННЯ ДЛЯ ШІ]: Ти —
+        Senior DevOps інженер розумного будинку. Сформуй щотижневий інженерний звіт
+        для власника в Telegram. Використовуй виключно валідні HTML-теги: <b>жирний</b>,
+        <code>код/сутність</code>, <i>курсив</i>, емодзі.  УВАГА: Не використовуй
+        математичні знаки менше або більше поза тегами, пиши словами (наприклад 'менше
+        25%').\nСтруктура звіту: 1. \U0001F6E0 <b>СТАТУС ЗДОРОВ'Я СИСТЕМИ:</b> Лаконічний
+        вердикт. 2. \U0001F4B0 <b>ЕНЕРГЕТИКА ТА ФІНАНСИ (ВІД ПОЧАТКУ МІСЯЦЯ):</b>\n
+        \  - Загальні витрати у кіловатах та сума у гривнях.\n   - Розбивка: ☀️ День
+        (кВт·год / грн) vs \U0001F319 Ніч (кВт·год / грн).\n   - Стан окремих лічильників
+        (Бойлер, Пралка, Холодильник, EcoFlow).\n3. \U0001F6A8 <b>АНАЛІЗ СИСТЕМНИХ
+        ПОМИЛОК ТА ЛОГІВ:</b>\n   - Рейтинг критичності: \U0001F534 [ВИСОКИЙ] / \U0001F7E1
+        [СЕРЕДНІЙ] / \U0001F7E2 [НИЗЬКИЙ].\n   - Розбір джерела [{{ last_err_src }}]
+        та конкретний Action Plan для усунення.\n4. \U0001F50B <b>ВИТРАТНИКИ ТА СЕРВІС:</b>\n
+        \  - Батарейки Zigbee.\n   - Стан Dreame (стан датчиків, щіток, коліс та фільтрів).\n5.
+        ⚙️ <b>АВТОМАТИЗАЦІЇ:</b> Статус сценаріїв."
+    response_variable: assist_response
+  - action: telegram_bot.send_message
+    data:
+      chat_id: 605056541
+      message: '{{ assist_response.response.speech.plain.speech }}'
+      parse_mode: html
+  - action: input_button.press
+    target:
+      entity_id: input_button.skidannia_logiv
+  - action: system_log.clear
+  mode: single
+- id: '1792128742107'
+  alias: 'Електромережа: Комплексний режим блекауту'
+  description: 'Повний контроль блекауту: активація резерву, захист станцій від бойлера
+    та перевантаження >1 кВт, дозаряд River (45-80%) та безпечне повернення мережі'
+  triggers:
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    to:
+    - unavailable
+    - unknown
+    for:
+      seconds: 45
+    id: blackout_start
+    trigger: state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    below: 170
+    for:
+      seconds: 10
+    id: blackout_start
+    trigger: numeric_state
+  - trigger: template
+    value_template: "{{ is_state('input_boolean.rezhim_blekautu', 'on') and\n   ((states('sensor.delta_2_0539_total_out_power')
+      | float(0) > 20) or\n    (states('sensor.delta_2_max_total_out_power') | float(0)
+      > 20) or\n    (states('sensor.stantsiia_zegor_zhivlennia') | float(0) > 20))
+      }}"
+    for:
+      seconds: 5
+    id: switched_to_reserve
+  - trigger: template
+    value_template: "{{ is_state('input_boolean.rezhim_blekautu', 'on') and\n   ((states('sensor.delta_2_0539_total_out_power')
+      | float(0) > 1000) or\n    (states('sensor.delta_2_max_total_out_power') | float(0)
+      > 1000) or\n    (states('sensor.stantsiia_zegor_zhivlennia') | float(0) > 1000))
+      }}"
+    for:
+      seconds: 15
+    id: overload_detected
+  - trigger: state
+    entity_id: switch.boiler
+    to: 'on'
+    id: boiler_blocked_on_reserve
+  - entity_id: input_number.zariad_river_600
+    below: 46
+    id: river_low_battery
+    trigger: numeric_state
+  - entity_id: input_number.zariad_river_600
+    above: 79
+    id: river_charged
+    trigger: numeric_state
+  - entity_id: sensor.delta_2_0539_battery_level
+    below: 21
+    id: delta2_low
+    trigger: numeric_state
+  - entity_id: sensor.delta_2_0539_battery_level
+    below: 11
+    id: delta2_critical
+    trigger: numeric_state
+  - entity_id: sensor.delta_2_max_battery_level
+    below: 21
+    id: delta2_max_low
+    trigger: numeric_state
+  - entity_id: sensor.delta_2_max_battery_level
+    below: 11
+    id: delta2_max_critical
+    trigger: numeric_state
+  - entity_id: sensor.zegor_2400_zariad_batarei
+    below: 21
+    id: zegor_low
+    trigger: numeric_state
+  - entity_id: sensor.zegor_2400_zariad_batarei
+    below: 11
+    id: zegor_critical
+    trigger: numeric_state
+  - entity_id: sensor.vvidnii_shchitok_napruga
+    above: 195
+    for:
+      minutes: 1
+    id: grid_restored
+    trigger: numeric_state
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: blackout_start
+      sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.rezhim_blekautu
+      - target:
+          entity_id:
+          - switch.river_600_in
+          - switch.boiler
+          - switch.robik_2_0_auto_drying
+        action: switch.turn_off
+        continue_on_error: true
+      - target:
+          entity_id: vacuum.robik_2_0
+        action: vacuum.stop
+        continue_on_error: true
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F6A8 <b>УВАГА: МІСЬКУ МЕРЕЖУ ЗНЕСТРУМЛЕНО!</b> Бойлер відсічено.
+            Розетку River переведено на автономію. Робота Dreame зупинено.\n\U0001F4CB
+            <b>Дії:</b> 1. Переведіть перемикач I-0-II у положення <b>РЕЗЕРВ</b>;
+            2. Вимкніть сушарки; 3. Не вмикайте чергове світло у ванній (30 Вт)."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: switched_to_reserve
+      sequence:
+      - target:
+          entity_id:
+          - switch.boiler
+          - switch.river_600_in
+        action: switch.turn_off
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F50B <b>КВАРТИРУ ЗАЖИВЛЕНО ВІД РЕЗЕРВУ!</b> Перемикач I-0-II
+            активовано. Режим блекауту активний. Бойлер заблоковано, розетку River
+            вимкнено."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: overload_detected
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "⚠️ <b>УВАГА: ПЕРЕВАНТАЖЕННЯ РЕЗЕРВУ (> 1 кВт)!</b> Навантаження
+            на станцію перевищило 1000 Вт. \U0001F449 <i>Терміново вимкніть потужні
+            прилади (чайник, фен, плиту)!</i>"
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: boiler_blocked_on_reserve
+      - condition: state
+        entity_id: input_boolean.rezhim_blekautu
+        state: 'on'
+      sequence:
+      - target:
+          entity_id: switch.boiler
+        action: switch.turn_off
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F6AB <b>СПРОБУ УВІМКНЕННЯ БОЙЛЕРА ЗАБЛОКОВАНО!</b> Бойлер
+            намагався запуститися від зарядної станції. Живлення негайно знято."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: river_low_battery
+      - condition: state
+        entity_id: input_boolean.rezhim_blekautu
+        state: 'on'
+      sequence:
+      - target:
+          entity_id: switch.river_600_in
+        action: switch.turn_on
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: ⚠️ <b>[РЕЗЕРВ] River досяг 45%!</b> Розетку увімкнено для дозарядки
+            від резервної лінії.
+          parse_mode: html
+      - delay:
+          minutes: 1
+      - condition: numeric_state
+        entity_id: sensor.river_600_in_zhivlennia
+        below: 10
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F6A8 <b>СТРУМ НЕ НАДХОДИТЬ НА RIVER!</b> Споживання <10
+            Вт. Станція вимкнена або рубильник не в положенні РЕЗЕРВ."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: river_charged
+      - condition: state
+        entity_id: input_boolean.rezhim_blekautu
+        state: 'on'
+      sequence:
+      - target:
+          entity_id: switch.river_600_in
+        action: switch.turn_off
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F50B <b>River заряджено до 80%!</b> Розетку вимкнено для
+            збереження ємності резервної станції."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: delta2_low
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F7E1 <b>[РЕЗЕРВ] Delta 2 розряджена до 20%!</b> Підготуйте
+            наступну станцію."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: delta2_critical
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F534 <b>[КРИТИЧНО] Delta 2 має менше 10%!</b> Негайно перемкніть
+            живлення."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: delta2_max_low
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F7E1 <b>[РЕЗЕРВ] Delta 2 MAX розряджена до 20%!</b> Підготуйте
+            ZEGOR 2400."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: delta2_max_critical
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F534 <b>[КРИТИЧНО] Delta 2 MAX має менше 10%!</b> Підключіть
+            ZEGOR 2400."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: zegor_low
+      - condition: numeric_state
+        entity_id: sensor.stantsiia_zegor_napruga
+        above: 50
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F7E1 <b>[РЕЗЕРВ] ZEGOR 2400 розряджена до 20%!</b> Залишок
+            ~470 Вт·год."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: zegor_critical
+      - condition: numeric_state
+        entity_id: sensor.stantsiia_zegor_napruga
+        above: 50
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F534 <b>[КРИТИЧНО] ZEGOR 2400 має менше 10%!</b> Резерв
+            майже вичерпано!"
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: grid_restored
+      - condition: state
+        entity_id: input_boolean.rezhim_blekautu
+        state: 'on'
+      sequence:
+      - choose:
+        - conditions:
+          - condition: template
+            value_template: "{{ (states('sensor.delta_2_0539_total_out_power') | float(0)
+              > 15) or\n   (states('sensor.delta_2_max_total_out_power') | float(0)
+              > 15) or\n   (states('sensor.stantsiia_zegor_zhivlennia') | float(0)
+              > 15) }}"
+          sequence:
+          - action: telegram_bot.send_message
+            data:
+              chat_id: 605056541
+              message: "\U0001F7E2 <b>МІСЬКУ ЕЛЕКТРОМЕРЕЖУ ВІДНОВЛЕНО!</b> Напруга
+                стабільна: {{ states('sensor.vvidnii_shchitok_napruga') }} V.\n⚠️
+                <b>УВАГА:</b> Квартира досі живиться від станції! Переведіть перемикач
+                <b>I-0-II</b> у щитку в положення <b>МЕРЕЖА</b>."
+              parse_mode: html
+          - wait_for_trigger:
+            - trigger: template
+              value_template: "{{ (states('sensor.delta_2_0539_total_out_power') |
+                float(0) < 10) and\n   (states('sensor.delta_2_max_total_out_power')
+                | float(0) < 10) and\n   (states('sensor.stantsiia_zegor_zhivlennia')
+                | float(0) < 10) }}"
+              for:
+                seconds: 5
+            timeout:
+              hours: 6
+            continue_on_timeout: false
+      - condition: numeric_state
+        entity_id: sensor.vvidnii_shchitok_napruga
+        above: 195
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.rezhim_blekautu
+      - target:
+          entity_id:
+          - switch.river_600_in
+          - switch.robik_2_0_auto_drying
+        action: switch.turn_on
+        continue_on_error: true
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F389 <b>ПЕРЕМИКАННЯ НА МЕРЕЖУ ЗАФІКСОВАНО!</b> Навантаження
+            зі станції знято. Блекаут повністю завершено. Прилади повернуто до штатного
+            режиму."
+          parse_mode: html
+  mode: queued
+  max: 5
+- id: '1793713336341'
+  alias: 'Водопостачання: Фіксація заміни фільтра'
+  description: Записує поточну дату заміни картриджа без надсилання зайвих повідомлень
+  triggers:
+  - trigger: state
+    entity_id: input_button.skidannia_resursu_filtra_vodi
+  actions:
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: input_datetime.data_ostannoi_zaminy_filtra_vodi
+    data:
+      date: '{{ now().strftime(''%Y-%m-%d'') }}'
+  mode: single

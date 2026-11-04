@@ -1,0 +1,17 @@
+# секрети і ключі
+secrets.yaml
+.ssh/
+.storage/
+.cloud/
+# дані та логи
+*.db
+*.db-*
+*.log
+*.log.*
+# відновлюється автоматично
+deps/
+tts/
+__pycache__/
+# встановлюється через HACS
+custom_components/
+www/community/

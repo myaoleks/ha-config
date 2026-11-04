@@ -1,0 +1,18 @@
+zegor_f_ksats_ia_startu_roboti:
+  alias: 'ZEGOR: Фіксація старту роботи'
+  sequence:
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.zegor_startovi_kvt
+    data:
+      value: '{{ states(''sensor.stantsiia_zegor_energiia'') | float(0) }}'
+  mode: single
+  icon: mdi:play-circle-outline
+skidannia_filtra_vodi:
+  alias: "Фільтр води: Скидання дати"
+  sequence:
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.data_ostannoi_zaminy_filtra_vodi
+      data:
+        date: "{{ now().strftime('%Y-%m-%d') }}"
