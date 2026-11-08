@@ -162,7 +162,8 @@
       seconds: 30
     id: normal_voltage
     trigger: numeric_state
-  - entity_id: sensor.vvidnii_shchitok_zhivlennia
+  - entity_id:
+    - sensor.vvidnii_shchitok_zhivlennia
     above: 6
     for:
       seconds: 30
