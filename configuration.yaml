@@ -241,7 +241,7 @@ template:
         icon: mdi:calendar-clock
         unit_of_measurement: "дн"
         state: >
-          {% set start = states('input_datetime.data_ostannoi_zaminy_filtra_vodi') %}
+          {% set start = states('input_datetime.data_ostannoi_zamini_filtra_vodi') %}
           {% set max_d = states('input_number.resurs_filtra_vodi_dniv') | int(45) %}
           {% if start not in ['unknown', 'unavailable', ''] and as_timestamp(start) is not none %}
             {% set passed = ((as_timestamp(now()) - as_timestamp(start)) / 86400) | int %}
@@ -256,7 +256,7 @@ template:
         icon: mdi:water-filter
         unit_of_measurement: "%"
         state: >
-          {% set start = states('input_datetime.data_ostannoi_zaminy_filtra_vodi') %}
+          {% set start = states('input_datetime.data_ostannoi_zamini_filtra_vodi') %}
           {% set max_d = states('input_number.resurs_filtra_vodi_dniv') | int(45) %}
           {% if start not in ['unknown', 'unavailable', ''] and as_timestamp(start) is not none %}
             {% set passed = ((as_timestamp(now()) - as_timestamp(start)) / 86400) | int %}
@@ -272,7 +272,7 @@ template:
         icon: mdi:counter
         unit_of_measurement: "м³"
         state: >
-          {% set start = states('input_datetime.data_ostannoi_zaminy_filtra_vodi') %}
+          {% set start = states('input_datetime.data_ostannoi_zamini_filtra_vodi') %}
           {% if start not in ['unknown', 'unavailable', ''] and as_timestamp(start) is not none %}
             {% set passed = ((as_timestamp(now()) - as_timestamp(start)) / 86400) | int %}
             {{ (passed * 0.37) | round(1) }}
