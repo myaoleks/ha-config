@@ -163,7 +163,7 @@
     id: normal_voltage
     trigger: numeric_state
   - entity_id: sensor.vvidnii_shchitok_zhivlennia
-    above: 6000
+    above: 6
     for:
       seconds: 30
     id: warn_overload
@@ -213,9 +213,9 @@
       sequence:
       - data:
           title: '⚡ Увага: Високе навантаження!'
-          message: 'Споживання: {{ states(''sensor.vvidnii_shchitok_zhivlennia'')
-            }} Вт (Струм: {{ states(''sensor.vvidnii_shchitok_strum'') }} А). Вимкни
-            потужні прилади, щоб не вибило автомат 32А.'
+          message: 'Споживання: {{ (states(''sensor.vvidnii_shchitok_zhivlennia'')
+            | float(0) * 1000) | round(0) }} Вт (Струм: {{ states(''sensor.vvidnii_shchitok_strum'')
+            }} А). Вимкни потужні прилади, щоб не вибило автомат 32А.'
           data:
             priority: high
         action: notify.mobile_app_cph2737
