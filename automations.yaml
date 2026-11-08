@@ -1158,7 +1158,7 @@
   actions:
   - action: input_datetime.set_datetime
     target:
-      entity_id: input_datetime.data_ostannoi_zaminy_filtra_vodi
+      entity_id: input_datetime.data_ostannoi_zamini_filtra_vodi
     data:
       date: '{{ now().strftime(''%Y-%m-%d'') }}'
   mode: single
