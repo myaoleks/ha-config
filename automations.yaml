@@ -286,34 +286,26 @@
   max: 5
 - id: switch_electricity_tariff
   alias: 'Енергооблік: Перемикання тарифів День/Ніч'
-  description: Автоматичне перемикання зон лічильника о 23:00 та 07:00
+  description: Перемикання зон о 23:00 і 07:00 та звірка зони після старту HA
   triggers:
-  - at: '23:00:00'
-    id: to_night
-    trigger: time
-  - at: 07:00:00
-    id: to_day
-    trigger: time
+  - trigger: time
+    at: '23:00:00'
+  - trigger: time
+    at: '07:00:00'
+  - trigger: homeassistant
+    event: start
+  conditions: []
   actions:
-  - choose:
-    - conditions:
-      - condition: trigger
-        id: to_night
-      sequence:
-      - action: select.select_option
-        target:
-          entity_id: select.merezha_dvozonnii
-        data:
-          option: night
-    - conditions:
-      - condition: trigger
-        id: to_day
-      sequence:
-      - action: select.select_option
-        target:
-          entity_id: select.merezha_dvozonnii
-        data:
-          option: day
+  - variables:
+      target_zone: >-
+        {{ 'day' if today_at('07:00') <= now() < today_at('23:00') else 'night' }}
+  - condition: template
+    value_template: "{{ states('select.merezha_dvozonnii') != target_zone }}"
+  - action: select.select_option
+    target:
+      entity_id: select.merezha_dvozonnii
+    data:
+      option: '{{ target_zone }}'
   mode: single
 - id: '1788904185874'
   alias: 'River 600W: Розрахунок заряду та калібрування'
