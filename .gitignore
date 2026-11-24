@@ -17,3 +17,4 @@ custom_components/
 www/community/
 zigbee2mqtt/
 .ha_run.lock
+.cache/
