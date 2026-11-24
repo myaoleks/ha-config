@@ -291,16 +291,16 @@
   - trigger: time
     at: '23:00:00'
   - trigger: time
-    at: '07:00:00'
+    at: 07:00:00
   - trigger: homeassistant
     event: start
   conditions: []
   actions:
   - variables:
-      target_zone: >-
-        {{ 'day' if today_at('07:00') <= now() < today_at('23:00') else 'night' }}
+      target_zone: '{{ ''day'' if today_at(''07:00'') <= now() < today_at(''23:00'')
+        else ''night'' }}'
   - condition: template
-    value_template: "{{ states('select.merezha_dvozonnii') != target_zone }}"
+    value_template: '{{ states(''select.merezha_dvozonnii'') != target_zone }}'
   - action: select.select_option
     target:
       entity_id: select.merezha_dvozonnii
@@ -800,7 +800,10 @@
 - id: '1792128742107'
   alias: 'Електромережа: Комплексний режим блекауту'
   description: 'Повний контроль блекауту: активація резерву, захист станцій від бойлера
-    та перевантаження >1 кВт, дозаряд River (45-80%) та безпечне повернення мережі'
+    та перевантаження >1 кВт, дозаряд River (45-80%) та безпечне повернення мережі.
+    P5a (24.11.2026): старт також від події blackout_confirmed (швидкий детектор),
+    Telegram надсилається першим, фінальне повідомлення залежить від того, чи вмикали
+    резерв.'
   triggers:
   - entity_id: sensor.vvidnii_shchitok_napruga
     to:
@@ -816,6 +819,9 @@
       seconds: 10
     id: blackout_start
     trigger: numeric_state
+  - trigger: event
+    event_type: blackout_confirmed
+    id: blackout_start
   - trigger: template
     value_template: "{{ is_state('input_boolean.rezhim_blekautu', 'on') and\n   ((states('sensor.delta_2_0539_total_out_power')
       | float(0) > 20) or\n    (states('sensor.delta_2_max_total_out_power') | float(0)
@@ -879,10 +885,24 @@
     - conditions:
       - condition: trigger
         id: blackout_start
+      - condition: state
+        entity_id: input_boolean.rezhim_blekautu
+        state: 'off'
       sequence:
       - action: input_boolean.turn_on
         target:
           entity_id: input_boolean.rezhim_blekautu
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F6A8 <b>УВАГА: МІСЬКУ МЕРЕЖУ ЗНЕСТРУМЛЕНО!</b> Бойлер відсічено.
+            Розетку River переведено на автономію. Робота Dreame зупинено.\n\U0001F4CB
+            <b>Дії:</b> 1. Переведіть перемикач I-0-II у положення <b>РЕЗЕРВ</b>;
+            2. Вимкніть сушарки; 3. Не вмикайте чергове світло у ванній (30 Вт).\n<i>Джерело:
+            {{ 'швидкий детектор (сервер на батареї + TOMZN мовчить)' if trigger.platform
+            == 'event' else 'TOMZN' }}</i>"
+          parse_mode: html
+        continue_on_error: true
       - target:
           entity_id:
           - switch.river_600_in
@@ -894,14 +914,6 @@
           entity_id: vacuum.robik_2_0
         action: vacuum.stop
         continue_on_error: true
-      - action: telegram_bot.send_message
-        data:
-          chat_id: 605056541
-          message: "\U0001F6A8 <b>УВАГА: МІСЬКУ МЕРЕЖУ ЗНЕСТРУМЛЕНО!</b> Бойлер відсічено.
-            Розетку River переведено на автономію. Робота Dreame зупинено.\n\U0001F4CB
-            <b>Дії:</b> 1. Переведіть перемикач I-0-II у положення <b>РЕЗЕРВ</b>;
-            2. Вимкніть сушарки; 3. Не вмикайте чергове світло у ванній (30 Вт)."
-          parse_mode: html
     - conditions:
       - condition: trigger
         id: switched_to_reserve
@@ -1061,6 +1073,14 @@
         entity_id: input_boolean.rezhim_blekautu
         state: 'on'
       sequence:
+      - variables:
+          blackout_min: '{{ ((now() - states.input_boolean.rezhim_blekautu.last_changed).total_seconds()
+            / 60) | round(0) | int }}'
+      - variables:
+          reserve_used: '{{ (states(''sensor.delta_2_0539_total_out_power'') | float(0)
+            > 15) or (states(''sensor.delta_2_max_total_out_power'') | float(0) >
+            15) or (states(''sensor.stantsiia_zegor_zhivlennia'') | float(0) > 15)
+            }}'
       - choose:
         - conditions:
           - condition: template
@@ -1103,8 +1123,10 @@
       - action: telegram_bot.send_message
         data:
           chat_id: 605056541
-          message: "\U0001F389 <b>ПЕРЕМИКАННЯ НА МЕРЕЖУ ЗАФІКСОВАНО!</b> Навантаження
-            зі станції знято. Блекаут повністю завершено. Прилади повернуто до штатного
+          message: "{% if reserve_used %}\U0001F389 <b>ПЕРЕМИКАННЯ НА МЕРЕЖУ ЗАФІКСОВАНО!</b>
+            Навантаження зі станції знято.{% else %}\U0001F7E2 <b>МІСЬКУ ЕЛЕКТРОМЕРЕЖУ
+            ВІДНОВЛЕНО!</b> На резерв не перемикались.{% endif %} Блекаут тривав {{
+            blackout_min }} хв. Режим блекауту завершено, прилади повернуто до штатного
             режиму."
           parse_mode: html
   mode: queued
@@ -1121,4 +1143,44 @@
       entity_id: input_datetime.data_ostannoi_zamini_filtra_vodi
     data:
       date: '{{ now().strftime(''%Y-%m-%d'') }}'
+  mode: single
+- id: blackout_fast_detect
+  alias: 'Електромережа: Швидке виявлення блекауту'
+  description: 'P5a: сервер на батареї 30 с + TOMZN без пакетів понад 75 с → подія
+    blackout_confirmed для автоматизації блекауту. Затримка ~1.5 хв замість ~3.7 хв.
+    Завершення блекауту визначає лише напруга TOMZN.'
+  triggers:
+  - entity_id: binary_sensor.system_monitor_charging
+    for:
+      seconds: 30
+    to: 'off'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.rezhim_blekautu
+    state: 'off'
+  actions:
+  - repeat:
+      sequence:
+      - delay:
+          seconds: 5
+      until:
+      - condition: template
+        value_template: "{{ not is_state('binary_sensor.system_monitor_charging',
+          'off')\n   or states('sensor.vvidnii_shchitok_napruga') in ['unavailable',
+          'unknown']\n   or (now() - states.sensor.vvidnii_shchitok_napruga.last_reported).total_seconds()
+          > 75\n   or repeat.index >= 48 }}"
+  - condition: state
+    entity_id: binary_sensor.system_monitor_charging
+    state: 'off'
+  - condition: state
+    entity_id: input_boolean.rezhim_blekautu
+    state: 'off'
+  - condition: template
+    value_template: "{{ states('sensor.vvidnii_shchitok_napruga') in ['unavailable',
+      'unknown']\n   or (now() - states.sensor.vvidnii_shchitok_napruga.last_reported).total_seconds()
+      > 75 }}"
+  - event: blackout_confirmed
+    event_data:
+      source: fast_detect
   mode: single
