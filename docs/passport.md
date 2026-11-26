@@ -9,7 +9,7 @@
 
 ## 1. Сервер, мережа, інфраструктура
 
-* Залізо: ультрабук x86-64, 3 GB RAM. HAOS 18.4, Core 2026.11.1. Підключення лише Wi-Fi (Intel iwlwifi), Ethernet немає. Bluetooth Intel (адаптер `hci0`) працює в HA.
+* Залізо: ультрабук x86-64, 3 GB RAM. HAOS 18.4, Core 2026.11.3. Підключення лише Wi-Fi (Intel iwlwifi), Ethernet немає. Bluetooth Intel (адаптер `hci0`) працює в HA.
 * Адреса HA в локальній мережі: `192.168.0.228`, **порт 80** (не 8123). IP закріплений резервацією DHCP у роутері, в HA IPv4 = «Автоматично». **[?]** де задано порт 80 (ймовірно `http: server_port: 80` у configuration.yaml).
 * Доступ: з домашнього ПК локально (`http://192.168.0.228`); Tailscale (аддон у HA) лише для зовнішнього доступу, наприклад з телефона. На домашньому ПК клієнта Tailscale немає.
 * Аддони (Apps): Zigbee2MQTT, Mosquitto, AppDaemon, Google Drive Backup, Advanced SSH & Web Terminal, File editor, Samba share, Tailscale.
