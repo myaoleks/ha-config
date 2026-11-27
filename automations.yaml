@@ -19,7 +19,9 @@
     понад 6 кВт, напруга нижче 190 В або недоступна. P5b (27.11.2026): бойлер на загальній
     лінії розеток, тому вмикання лише в стані «Мережа» (input_select.stan_zhivlennia),
     вимкнення в будь-якому іншому. Перевірка кожні 5 хв у вікні: вмикає бойлер, якщо
-    розетка перезавантажилась у вимкнений стан.'
+    розетка перезавантажилась у вимкнений стан. 27.11: вмикання лише якщо живлення
+    квартири стабільне 6 хв (захист від роботи від станції в перші хвилини після перемикання
+    на резерв); періодична перевірка без запису в журнал, коли вмикати нічого.'
   triggers:
   - above: 6
     entity_id: sensor.vvidnii_shchitok_zhivlennia
@@ -91,6 +93,45 @@
   - id: periodic
     minutes: /5
     trigger: time_pattern
+  conditions:
+  - condition: or
+    conditions:
+    - condition: not
+      conditions:
+      - condition: trigger
+        id: periodic
+    - condition: and
+      conditions:
+      - condition: state
+        entity_id: input_select.stan_zhivlennia
+        for:
+          minutes: 1
+        state: Мережа
+      - condition: state
+        entity_id: switch.boiler
+        state: 'off'
+      - condition: or
+        conditions:
+        - after: 04:00:00
+          before: 07:00:00
+          condition: time
+        - after: '19:30:00'
+          before: '21:30:00'
+          condition: time
+        - after: '23:00:00'
+          before: 00:30:00
+          condition: time
+      - above: 190
+        condition: numeric_state
+        entity_id: sensor.vvidnii_shchitok_napruga
+      - below: 3.8
+        condition: numeric_state
+        entity_id: sensor.vvidnii_shchitok_zhivlennia
+      - alias: Живлення квартири стабільне 6 хв (не було перемикань I-0-II)
+        condition: template
+        value_template: '{{ states(''binary_sensor.system_monitor_charging'') != ''off''
+          and (now() - states.binary_sensor.system_monitor_charging.last_changed).total_seconds()
+          > 360 }}'
   actions:
   - choose:
     - alias: Вимкнення (захист, кінець вікна, не мережа)
@@ -140,6 +181,11 @@
           - below: 3.8
             condition: numeric_state
             entity_id: sensor.vvidnii_shchitok_zhivlennia
+      - alias: Живлення квартири стабільне 6 хв (не було перемикань I-0-II)
+        condition: template
+        value_template: '{{ states(''binary_sensor.system_monitor_charging'') != ''off''
+          and (now() - states.binary_sensor.system_monitor_charging.last_changed).total_seconds()
+          > 360 }}'
       sequence:
       - action: switch.turn_on
         target:
@@ -173,20 +219,22 @@
       - below: 3.8
         condition: numeric_state
         entity_id: sensor.vvidnii_shchitok_zhivlennia
+      - alias: Живлення квартири стабільне 6 хв (не було перемикань I-0-II)
+        condition: template
+        value_template: '{{ states(''binary_sensor.system_monitor_charging'') != ''off''
+          and (now() - states.binary_sensor.system_monitor_charging.last_changed).total_seconds()
+          > 360 }}'
       sequence:
       - action: switch.turn_on
         target:
           entity_id: switch.boiler
-    - alias: Періодична перевірка без дій (не слати зайві команди)
-      conditions:
-      - condition: trigger
-        id: periodic
-      sequence: []
     default:
     - action: switch.turn_off
       target:
         entity_id: switch.boiler
   mode: restart
+  trace:
+    stored_traces: 20
 - id: '1788196072682'
   alias: 'Електромережа: Превентивні сповіщення TOMZN'
   description: Попереджає про наближення до критичних меж до спрацювання захисту
@@ -474,7 +522,9 @@
   mode: single
 - id: '1788943914924'
   alias: 'River 600W: Захист живлення розетки (Watchdog)'
-  description: Примусово тримає розетку увімкненою завжди, коли в місті є електроенергія
+  description: 'Примусово тримає розетку увімкненою завжди, коли в місті є електроенергія.
+    27.11: перевірка кожні 2 хв, бо після перезавантаження розетки (перемикання I-0-II)
+    команда увімкнення може загубитися, а стан у HA лишається off без змін.'
   triggers:
   - trigger: state
     entity_id: switch.river_600_in
@@ -493,6 +543,8 @@
   - trigger: state
     entity_id: input_boolean.rezhim_blekautu
     to: 'off'
+  - trigger: time_pattern
+    minutes: /2
   conditions:
   - condition: state
     entity_id: input_boolean.rezhim_blekautu
@@ -500,6 +552,11 @@
   - condition: numeric_state
     entity_id: sensor.vvidnii_shchitok_napruga
     above: 190
+  - condition: not
+    conditions:
+    - condition: state
+      entity_id: switch.river_600_in
+      state: 'on'
   actions:
   - action: switch.turn_on
     target:
@@ -1258,6 +1315,8 @@
     to: '{{ trigger.to_state.state if trigger.to_state is defined and trigger.to_state
       is not none else '''' }}'
     v_now: '{{ states(''sensor.vvidnii_shchitok_napruga'') }}'
+  trace:
+    stored_traces: 20
 - id: '1793713336341'
   alias: 'Водопостачання: Фіксація заміни фільтра'
   description: Записує поточну дату заміни картриджа без надсилання зайвих повідомлень
@@ -1278,15 +1337,35 @@
     (лінія квартири під напругою); М = TOMZN понад 195 В зі свіжими пакетами (до 75
     с); С = споживання з мережі понад 60 Вт; Р = Atorch S1 понад 30 Вт (станція живить
     квартиру). Синхронізує input_boolean.rezhim_blekautu (on у всіх станах, крім Мережа).
-    Дії та сповіщення виконує окрема автоматизація.'
+    Дії та сповіщення виконує окрема автоматизація. Виправлення 27.11 (тест А): мережа
+    є, квартира живлена, з мережі менше 60 Вт, S1 офлайн = Резерв (мережа є) і зі
+    стану Мережа (раніше чекали S1).'
   triggers:
   - entity_id:
     - binary_sensor.system_monitor_charging
     - sensor.vvidnii_shchitok_napruga
     - sensor.vvidnii_shchitok_zhivlennia
-    - sensor.rezerv_s1_zhivlennia
     to:
     trigger: state
+  - trigger: numeric_state
+    entity_id: sensor.rezerv_s1_zhivlennia
+    above: 30
+  - trigger: numeric_state
+    entity_id: sensor.rezerv_s1_zhivlennia
+    below: 30
+  - trigger: state
+    entity_id: sensor.rezerv_s1_zhivlennia
+    to:
+    - unavailable
+    - unknown
+  - trigger: state
+    entity_id: sensor.rezerv_s1_zhivlennia
+    from:
+    - unavailable
+    - unknown
+    not_to:
+    - unavailable
+    - unknown
   - seconds: /15
     trigger: time_pattern
   - event: start
@@ -1353,19 +1432,35 @@
       cur }}{% elif m and c %}Мережа{% elif m_absent or (m and not c) %}Блекаут{%
       else %}{{ cur }}{% endif %}{% else %}{% if r %}{% if m %}Резерв (мережа є){%
       elif m_absent %}Резерв{% else %}{{ cur if cur in res else ''Резерв'' }}{% endif
-      %}{% elif m and (c or s1_ok) %}Мережа{% elif m %}{{ ''Мережа'' if cur == ''Мережа''
-      else ''Резерв (мережа є)'' }}{% elif m_absent %}{% if cur == ''Мережа'' %}Мережа{%
-      elif cur == ''Блекаут'' and zh_age < 120 %}Блекаут{% else %}Резерв{% endif %}{%
-      else %}{{ cur }}{% endif %}{% endif %}'
+      %}{% elif m and (c or s1_ok) %}Мережа{% elif m %}Резерв (мережа є){% elif m_absent
+      %}{% if cur == ''Мережа'' %}Мережа{% elif cur == ''Блекаут'' and zh_age < 120
+      %}Блекаут{% else %}Резерв{% endif %}{% else %}{{ cur }}{% endif %}{% endif %}'
+  trace:
+    stored_traces: 20
 - id: reserve_station_detect
   alias: 'Резерв: Визначення станції та облік ZEGOR'
-  description: 'P5b (27.11.2026). Визначає активну станцію (input_select.aktivna_stantsiia):
-    Delta 2 за Bluetooth (вихід AC понад 30 Вт); інакше якщо S1 понад 30 Вт і хмара
-    EcoFlow після початку навантаження показала вихід Delta 2 Max понад 30 Вт, це
-    Delta 2 Max; якщо за 20 хв хмара не з''явилась, це ZEGOR. Облік ZEGOR: віднімає
-    енергію S1 від input_number.zegor_zariad (2.621 кВт·год = 100%) лише коли активна
-    станція ZEGOR. Після заряду ZEGOR задай заряд вручну.'
+  description: 'P5b (27.11.2026, v2). Визначає активну станцію (input_select.aktivna_stantsiia).
+    Відлік від моменту, коли S1 вийшла на зв''язок (input_datetime.s1_na_zv_iazku_z
+    = станцію ввімкнули): Delta 2, якщо Bluetooth показує вихід AC понад 30 Вт; Delta
+    2 Max, якщо після ввімкнення станції хмара показала вихід Delta 2 Max понад 30
+    Вт; ZEGOR, якщо через 20 хв після першого навантаження (input_datetime.pochatok_navantazhennia_s1)
+    хмара мовчить. Коротке перемикання мережа/резерв станцію не скидає. Облік ZEGOR:
+    енергія S1 віднімається від input_number.zegor_zariad (2.621 кВт·год = 100%),
+    лише коли активна ZEGOR; при визначенні ZEGOR віднімається енергія від останньої
+    точки обліку. При виході S1 на зв''язок вмикає Fast refresh (оновлення раз на
+    секунду). Поки стан не Мережа, а S1 офлайн, щохвилини перепідключає S1. Fast refresh
+    на S1 сам вимикається через 5 хв: автоматизація вмикає його знову, поки стан не
+    Мережа або S1 понад 30 Вт.'
   triggers:
+  - entity_id: sensor.rezerv_s1_zhivlennia
+    from:
+    - unavailable
+    - unknown
+    id: s1_online
+    not_to:
+    - unavailable
+    - unknown
+    trigger: state
   - above: 30
     entity_id: sensor.rezerv_s1_zhivlennia
     id: load_start
@@ -1374,27 +1469,56 @@
     id: energy
     to:
     trigger: state
+  - entity_id: switch.rezerv_s1_fast_refresh
+    for:
+      seconds: 3
+    id: fast_off
+    to: 'off'
+    trigger: state
   - entity_id:
     - input_select.stan_zhivlennia
-    - sensor.garderobna_delta_2_ble_ac_output_power
     - sensor.delta_2_max_total_out_power
-    - sensor.rezerv_s1_zhivlennia
     id: recalc
     to:
     trigger: state
+  - above: 30
+    entity_id: sensor.garderobna_delta_2_ble_ac_output_power
+    id: recalc
+    trigger: numeric_state
+  - below: 30
+    entity_id: sensor.garderobna_delta_2_ble_ac_output_power
+    id: recalc
+    trigger: numeric_state
+  - below: 30
+    entity_id: sensor.rezerv_s1_zhivlennia
+    id: recalc
+    trigger: numeric_state
+  - entity_id: sensor.rezerv_s1_zhivlennia
+    id: recalc
+    to:
+    - unavailable
+    - unknown
+    trigger: state
   - id: recalc
     minutes: /1
+    trigger: time_pattern
+  - id: s1_wake
+    minutes: /1
+    seconds: 30
     trigger: time_pattern
   conditions:
   - condition: or
     conditions:
     - condition: trigger
       id:
+      - s1_online
       - load_start
       - energy
+      - fast_off
     - condition: state
       entity_id: input_select.stan_zhivlennia
       state:
+      - Блекаут
       - Резерв
       - Резерв (мережа є)
     - condition: not
@@ -1404,10 +1528,102 @@
         state: Немає
   actions:
   - choose:
-    - alias: 'Початок навантаження через S1: фіксуємо час і лічильник енергії'
+    - alias: 'S1 вийшла на зв''язок (станцію ввімкнули): час, Fast refresh, старт
+        навантаження'
+      conditions:
+      - condition: trigger
+        id: s1_online
+      sequence:
+      - action: input_datetime.set_datetime
+        data:
+          timestamp: '{{ now().timestamp() }}'
+        target:
+          entity_id: input_datetime.s1_na_zv_iazku_z
+      - action: switch.turn_on
+        continue_on_error: true
+        target:
+          entity_id: switch.rezerv_s1_fast_refresh
+      - if:
+        - above: 30
+          condition: numeric_state
+          entity_id: sensor.rezerv_s1_zhivlennia
+        then:
+        - action: input_datetime.set_datetime
+          data:
+            timestamp: '{{ now().timestamp() }}'
+          target:
+            entity_id: input_datetime.pochatok_navantazhennia_s1
+        - if:
+          - condition: template
+            value_template: '{{ is_number(states(''sensor.rezerv_s1_energiia'')) }}'
+          then:
+          - action: input_number.set_value
+            data:
+              value: '{{ states(''sensor.rezerv_s1_energiia'') | float }}'
+            target:
+              entity_id: input_number.s1_energiia_na_starti_navantazhennia
+    - alias: 'Fast refresh вимкнувся: увімкнути знову'
+      conditions:
+      - condition: trigger
+        id: fast_off
+      - condition: not
+        conditions:
+        - condition: state
+          entity_id: sensor.rezerv_s1_zhivlennia
+          state:
+          - unavailable
+          - unknown
+      - condition: or
+        conditions:
+        - condition: not
+          conditions:
+          - condition: state
+            entity_id: input_select.stan_zhivlennia
+            state: Мережа
+        - condition: numeric_state
+          entity_id: sensor.rezerv_s1_zhivlennia
+          above: 30
+      sequence:
+      - action: switch.turn_on
+        continue_on_error: true
+        target:
+          entity_id: switch.rezerv_s1_fast_refresh
+    - alias: 'Навантаження через S1: увімкнути Fast refresh'
       conditions:
       - condition: trigger
         id: load_start
+      - condition: state
+        entity_id: switch.rezerv_s1_fast_refresh
+        state: 'off'
+      sequence:
+      - action: switch.turn_on
+        continue_on_error: true
+        target:
+          entity_id: switch.rezerv_s1_fast_refresh
+      - condition: template
+        value_template: '{{ as_timestamp(states(''input_datetime.pochatok_navantazhennia_s1''),
+          0) < as_timestamp(states(''input_datetime.s1_na_zv_iazku_z''), 0) }}'
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.pochatok_navantazhennia_s1
+        data:
+          timestamp: '{{ now().timestamp() }}'
+      - if:
+        - condition: template
+          value_template: '{{ is_number(states(''sensor.rezerv_s1_energiia'')) }}'
+        then:
+        - action: input_number.set_value
+          target:
+            entity_id: input_number.s1_energiia_na_starti_navantazhennia
+          data:
+            value: '{{ states(''sensor.rezerv_s1_energiia'') | float }}'
+    - alias: Перше навантаження після ввімкнення станції
+      conditions:
+      - condition: trigger
+        id: load_start
+      - condition: template
+        value_template: '{{ as_timestamp(states(''input_datetime.pochatok_navantazhennia_s1''),
+          0) < as_timestamp(states(''input_datetime.s1_na_zv_iazku_z''), 0) }}'
       sequence:
       - action: input_datetime.set_datetime
         data:
@@ -1443,6 +1659,11 @@
             }}'
         target:
           entity_id: input_number.zegor_zariad
+      - action: input_number.set_value
+        data:
+          value: '{{ trigger.to_state.state | float }}'
+        target:
+          entity_id: input_number.s1_energiia_na_starti_navantazhennia
     - alias: Перерахунок активної станції
       conditions:
       - condition: trigger
@@ -1452,15 +1673,15 @@
           new: '{% set st = states(''input_select.stan_zhivlennia'') %}{% set inres
             = st in [''Резерв'', ''Резерв (мережа є)''] %}{% set s1w = states(''sensor.rezerv_s1_zhivlennia'')
             | float(0) %}{% set d2 = states(''sensor.garderobna_delta_2_ble_ac_output_power'')
-            | float(0) > 30 %}{% set t0 = as_timestamp(states(''input_datetime.pochatok_navantazhennia_s1''),
+            | float(0) > 30 %}{% set s1on = as_timestamp(states(''input_datetime.s1_na_zv_iazku_z''),
+            0) %}{% set t0 = as_timestamp(states(''input_datetime.pochatok_navantazhennia_s1''),
             0) %}{% set ms = states.sensor.delta_2_max_total_out_power %}{% set d2m
-            = ms is not none and ms.state | float(0) > 30 and as_timestamp(ms.last_updated)
-            >= t0 %}{% set age = now().timestamp() - t0 %}{% if not inres %}Немає{%
-            elif d2 %}Delta 2{% elif s1w > 30 and d2m %}Delta 2 Max{% elif s1w > 30
-            and age >= 1200 %}ZEGOR{% elif s1w > 30 %}Delta 2 Max або ZEGOR{% elif
-            states(''input_select.aktivna_stantsiia'') in [''Delta 2'', ''Delta 2
-            Max'', ''ZEGOR''] %}{{ states(''input_select.aktivna_stantsiia'') }}{%
-            else %}Невідомо{% endif %}'
+            = ms is not none and ms.state | float(0) > 30 and as_timestamp(ms.last_reported)
+            >= s1on %}{% set age = now().timestamp() - t0 %}{% set cur = states(''input_select.aktivna_stantsiia'')
+            %}{% if not inres %}Немає{% elif d2 %}Delta 2{% elif s1w > 30 and d2m
+            %}Delta 2 Max{% elif s1w > 30 and t0 >= s1on and age >= 1200 %}ZEGOR{%
+            elif s1w > 30 %}Delta 2 Max або ZEGOR{% elif cur in [''Delta 2'', ''Delta
+            2 Max'', ''ZEGOR''] %}{{ cur }}{% else %}Невідомо{% endif %}'
           old: '{{ states(''input_select.aktivna_stantsiia'') }}'
       - condition: template
         value_template: '{{ new != old }}'
@@ -1470,17 +1691,44 @@
             }}'
         then:
         - action: input_number.set_value
-          alias: Відняти енергію, витрачену до визначення станції
+          alias: Відняти енергію від останньої точки обліку
           data:
             value: '{% set de = states(''sensor.rezerv_s1_energiia'') | float - states(''input_number.s1_energiia_na_starti_navantazhennia'')
               | float(0) %}{% set de = de if 0 < de < 3 else 0 %}{{ [0, states(''input_number.zegor_zariad'')
               | float(0) - de / 2.621 * 100] | max | round(1) }}'
           target:
             entity_id: input_number.zegor_zariad
+        - action: input_number.set_value
+          data:
+            value: '{{ states(''sensor.rezerv_s1_energiia'') | float }}'
+          target:
+            entity_id: input_number.s1_energiia_na_starti_navantazhennia
       - action: input_select.select_option
         data:
           option: '{{ new }}'
         target:
           entity_id: input_select.aktivna_stantsiia
+    - alias: 'S1 офлайн під час блекауту або резерву: примусово перепідключити'
+      conditions:
+      - condition: trigger
+        id: s1_wake
+      - condition: state
+        entity_id: input_select.stan_zhivlennia
+        state:
+        - Блекаут
+        - Резерв
+        - Резерв (мережа є)
+      - condition: state
+        entity_id: sensor.rezerv_s1_zhivlennia
+        state:
+        - unavailable
+        - unknown
+      sequence:
+      - action: homeassistant.reload_config_entry
+        continue_on_error: true
+        data:
+          entry_id: 01M53GWN16HK7WQPQMBFH2DFFC
   max: 10
   mode: queued
+  trace:
+    stored_traces: 20
