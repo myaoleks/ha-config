@@ -15,9 +15,10 @@
   mode: restart
 - id: '1788194060757'
   alias: 'Бойлер: Розклад + Захист мережі + Резервне живлення'
-  description: 'Вікна: ніч 04:00-07:00 і 23:00-00:30, вечір 19:30-21:30. Захист: ввід
-    понад 6 кВт, напруга нижче 190 В або недоступна. P5b (27.11.2026): бойлер на загальній
-    лінії розеток, тому вмикання лише в стані «Мережа» (input_select.stan_zhivlennia),
+  description: 'Вікна: ніч 04:00-07:00 і 23:00-00:30, вечір за помічниками input_datetime.boiler_vechirnie_vikno_pochatok
+    / _kinets (з 27.11 20:30-21:30, раніше 19:30-21:30; до 08.10 обід 13:00-14:00).
+    Захист: ввід понад 6 кВт, напруга нижче 190 В або недоступна. P5b (27.11.2026):
+    бойлер на загальній лінії розеток, тому вмикання лише в стані «Мережа» (input_select.stan_zhivlennia),
     вимкнення в будь-якому іншому. Перевірка кожні 5 хв у вікні: вмикає бойлер, якщо
     розетка перезавантажилась у вимкнений стан. 27.11: вмикання лише якщо живлення
     квартири стабільне 6 хв (захист від роботи від станції в перші хвилини після перемикання
@@ -46,7 +47,7 @@
   - at: 07:00:00
     id: turn_off_event
     trigger: time
-  - at: '21:30:00'
+  - at: input_datetime.boiler_vechirnie_vikno_kinets
     id: turn_off_event
     trigger: time
   - at: 00:30:00
@@ -55,7 +56,7 @@
   - at: 04:00:00
     id: try_turn_on
     trigger: time
-  - at: '19:30:00'
+  - at: input_datetime.boiler_vechirnie_vikno_pochatok
     id: try_turn_on
     trigger: time
   - at: '23:00:00'
@@ -115,8 +116,8 @@
         - after: 04:00:00
           before: 07:00:00
           condition: time
-        - after: '19:30:00'
-          before: '21:30:00'
+        - after: input_datetime.boiler_vechirnie_vikno_pochatok
+          before: input_datetime.boiler_vechirnie_vikno_kinets
           condition: time
         - after: '23:00:00'
           before: 00:30:00
@@ -154,8 +155,8 @@
         - after: 04:00:00
           before: 07:00:00
           condition: time
-        - after: '19:30:00'
-          before: '21:30:00'
+        - after: input_datetime.boiler_vechirnie_vikno_pochatok
+          before: input_datetime.boiler_vechirnie_vikno_kinets
           condition: time
         - after: '23:00:00'
           before: 00:30:00
@@ -207,8 +208,8 @@
         - after: 04:00:00
           before: 07:00:00
           condition: time
-        - after: '19:30:00'
-          before: '21:30:00'
+        - after: input_datetime.boiler_vechirnie_vikno_pochatok
+          before: input_datetime.boiler_vechirnie_vikno_kinets
           condition: time
         - after: '23:00:00'
           before: 00:30:00
@@ -1732,3 +1733,192 @@
   mode: queued
   trace:
     stored_traces: 20
+- id: '1795805849916'
+  alias: 'Холодильник: Контроль дверцят за роботою компресора'
+  description: 'Розетка ЕнерджіВампір (холодильник). Норма за даними 21-27.11: компресор
+    працює 50-70 хв, стоїть 50-55 хв, частка роботи ~50%. Безперервна робота 2,5 год
+    від звичайного старту = відхилення (ймовірно, нещільно зачинені дверцята). Після
+    відновлення живлення розетки (запуск з unknown/unavailable) перше попередження
+    пропускається, бо холодильник доганяє температуру; 4 год і 8 год повідомляються
+    завжди. Кожне відхилення рахується в counter.kholodilnik_vidkhilennia.'
+  triggers:
+  - entity_id: binary_sensor.kholodilnik_kompresor
+    for:
+      hours: 2
+      minutes: 30
+    from: 'off'
+    id: dovgo
+    to: 'on'
+    trigger: state
+  - entity_id: binary_sensor.kholodilnik_kompresor
+    for:
+      hours: 4
+    id: duzhe_dovgo
+    to: 'on'
+    trigger: state
+  - entity_id: binary_sensor.kholodilnik_kompresor
+    for:
+      hours: 8
+    id: kritychno
+    to: 'on'
+    trigger: state
+  - entity_id: binary_sensor.kholodilnik_kompresor
+    from: 'on'
+    id: zupynka
+    to: 'off'
+    trigger: state
+  - entity_id: binary_sensor.kholodilnik_kompresor
+    for:
+      minutes: 10
+    id: zviazok
+    to:
+    - unavailable
+    - unknown
+    trigger: state
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id:
+        - dovgo
+        - duzhe_dovgo
+        - kritychno
+      sequence:
+      - variables:
+          hodyn: '{{ {''dovgo'': ''2,5'', ''duzhe_dovgo'': ''4'', ''kritychno'': ''8''}[trigger.id]
+            }}'
+          tekst: "{% if trigger.id == 'dovgo' %}\U0001F9CA <b>Холодильник</b>: компресор
+            працює без зупинки вже <b>2,5 год</b> (норма до 1 год 10 хв).\nПеревірте,
+            чи щільно зачинені дверцята.{% elif trigger.id == 'duzhe_dovgo' %}⚠️ <b>Холодильник</b>:
+            компресор працює без зупинки вже <b>4 год</b>.\nЙмовірно, відчинені дверцята
+            або завантажено багато теплих продуктів. Перевірте дверцята й ущільнювач.{%
+            else %}\U0001F534 <b>Холодильник</b>: компресор працює без зупинки вже
+            <b>8 год</b>.\nЦе вже не схоже на норму: перевірте дверцята, ущільнювач,
+            температуру всередині, вентиляцію задньої стінки.{% endif %}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.kholodilnik_vidkhilennia_trivaie
+      - action: logbook.log
+        data:
+          entity_id: binary_sensor.kholodilnik_kompresor
+          message: Компресор працює без зупинки {{ hodyn }} год
+          name: Холодильник
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: '{{ tekst }}'
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: zupynka
+      - condition: state
+        entity_id: input_boolean.kholodilnik_vidkhilennia_trivaie
+        state: 'on'
+      sequence:
+      - variables:
+          khv: '{{ ((trigger.to_state.last_changed - trigger.from_state.last_changed).total_seconds()
+            / 60) | round(0) | int }}'
+      - action: counter.increment
+        target:
+          entity_id: counter.kholodilnik_vidkhilennia
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.kholodilnik_vidkhilennia_trivaie
+      - action: logbook.log
+        data:
+          entity_id: binary_sensor.kholodilnik_kompresor
+          message: 'Відхилення завершено: безперервна робота {{ khv // 60 }} год {{
+            khv % 60 }} хв'
+          name: Холодильник
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: '✅ <b>Холодильник</b>: компресор зупинився після {{ khv // 60 }}
+            год {{ khv % 60 }} хв безперервної роботи.
+
+            Відхилення зафіксовано (усього: {{ states(''counter.kholodilnik_vidkhilennia'')
+            }}).'
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: zviazok
+      - condition: state
+        entity_id: input_boolean.kholodilnik_vidkhilennia_trivaie
+        state: 'on'
+      sequence:
+      - action: counter.increment
+        target:
+          entity_id: counter.kholodilnik_vidkhilennia
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.kholodilnik_vidkhilennia_trivaie
+      - action: logbook.log
+        data:
+          entity_id: binary_sensor.kholodilnik_kompresor
+          message: 'Відхилення закрито без підсумку: розетка холодильника недоступна
+            10 хв'
+          name: Холодильник
+  max: 5
+  mode: queued
+- id: '1795813542005'
+  alias: 'Сервіс: Нагадування про обслуговування бойлера'
+  description: 'Рахує дні до обслуговування (sensor.boiler_dniv_do_obslugovuvannia
+    = дата останнього обслуговування + інтервал у місяцях). Нагадує в Telegram о 10:00
+    за 30, 14, 7, 1 і 0 днів, після строку щотижня. Кнопка input_button.boiler_obslugovuvannia_vikonano
+    записує сьогоднішню дату. Останнє обслуговування: 12.10.2026 (заміна магнієвого
+    анода, чистка від накипу).'
+  triggers:
+  - at: '10:00:00'
+    id: perevirka
+    trigger: time
+  - entity_id: input_button.boiler_obslugovuvannia_vikonano
+    id: vykonano
+    not_from:
+    - unavailable
+    - unknown
+    trigger: state
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: vykonano
+      sequence:
+      - action: input_datetime.set_datetime
+        data:
+          date: '{{ now().date() }}'
+        target:
+          entity_id: input_datetime.boiler_data_obslugovuvannia
+      - delay:
+          seconds: 2
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "\U0001F6E0 <b>Бойлер</b>: обслуговування зафіксовано {{ now().strftime('%d.%m.%Y')
+            }}.\nНаступне через {{ states('input_number.boiler_interval_obslugovuvannia')
+            | int }} міс (через {{ states('sensor.boiler_dniv_do_obslugovuvannia')
+            }} дн)."
+          parse_mode: html
+    - conditions:
+      - condition: trigger
+        id: perevirka
+      - condition: template
+        value_template: '{% set n = states(''sensor.boiler_dniv_do_obslugovuvannia'')
+          | int(999) %}{{ n in [30, 14, 7, 1, 0] or (n < 0 and n % 7 == 0) }}'
+      sequence:
+      - variables:
+          dni: '{{ states(''sensor.boiler_dniv_do_obslugovuvannia'') | int }}'
+      - action: telegram_bot.send_message
+        data:
+          chat_id: 605056541
+          message: "{% if dni > 0 %}\U0001F6E0 <b>Бойлер</b>: до планового обслуговування
+            {{ dni }} дн.{% elif dni == 0 %}\U0001F6E0 <b>Бойлер</b>: сьогодні час
+            планового обслуговування.{% else %}⚠️ <b>Бойлер</b>: обслуговування прострочене
+            на {{ -dni }} дн.{% endif %}\nОстаннє: {{ as_datetime(states('input_datetime.boiler_data_obslugovuvannia')).strftime('%d.%m.%Y')
+            }}.\nЩо зробити: перевірити магнієвий анод (замінити, якщо зношений більш
+            ніж наполовину), почистити бак і ТЕН від накипу, перевірити запобіжний
+            клапан і положення ручки термостата.\nПісля робіт натисніть «Бойлер: обслуговування
+            виконано»."
+          parse_mode: html
+  mode: single

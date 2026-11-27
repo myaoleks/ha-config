@@ -58,9 +58,11 @@
 
 * **Живлення: звичайна розетка на загальній лінії «Розетки»**, яку перемикає I-0-II (підтверджено власником і даними 26.11.2026). Апаратного відсікання від резерву немає: захищає лише HA.
 * Керування: `switch.boiler` через автоматизацію «Бойлер: Розклад + Захист мережі + Резервне живлення» (mode restart).
-* Термостат 55 °C (ECO).
-* Вікна нагріву: **04:00-07:00 (ніч), 19:30-21:30 (день, перед душем), 23:00-00:30 (ніч).**
-* Вимикання: потужність вводу вище 6 кВт протягом 5 с; напруга нижче 190 В або unavailable; **стан живлення не «Мережа»**; кінець вікна (07:00, 21:30, 00:30).
+* Термостат: ручка майже на максимумі (зі слів власника 27.11.2026; раніше в паспорті помилково ECO 55 °C). Датчика температури води немає.
+* Обслуговування: 12-13.10.2026 заміна магнієвого анода і чистка від накипу. Наступне за `sensor.boiler_dniv_do_obslugovuvannia` (дата `input_datetime.boiler_data_obslugovuvannia` + `input_number.boiler_interval_obslugovuvannia`, 12 міс), нагадування в Telegram, кнопка `input_button.boiler_obslugovuvannia_vikonano`.
+* Споживання: до 08.10 (обіднє вікно 13:00-14:00) 4.3 кВт·год/добу, 27% за денним тарифом; 14.10-25.11 (вечір 19:30-21:30) 5.6 кВт·год/добу, 43% за денним. Вікно 23:00-00:30 майже завжди закінчується за таймером, 04:00-07:00 за термостатом.
+* Вікна нагріву: **04:00-07:00 (ніч), вечірнє за помічниками `input_datetime.boiler_vechirnie_vikno_pochatok` / `_kinets` (з 27.11.2026 20:30-21:30, денний тариф, перед душем), 23:00-00:30 (ніч).** До 08.10.2026 замість вечірнього було обіднє 13:00-14:00.
+* Вимикання: потужність вводу вище 6 кВт протягом 5 с; напруга нижче 190 В або unavailable; **стан живлення не «Мережа»**; кінець вікна (07:00, кінець вечірнього вікна, 00:30).
 * Вмикання: у вікні, **стан живлення «Мережа»**, напруга вище 190 В; якщо бойлер вимкнений, потужність вводу нижче 3.8 кВт; якщо увімкнений, нижче 6 кВт. Тригери: початок вікна, потужність нижче 3.5 кВт 1 хв, напруга вище 195 В 1 хв, відновлення сенсора, старт HA, стан «Мережа» 1 хв, **перевірка кожні 5 хв у вікні** (вмикає після перезавантаження розетки у `off`).
 * Додатковий захист в автоматизації дій блекауту: будь-яке вмикання бойлера поза станом «Мережа» одразу вимикається з повідомленням у Telegram.
 * `select.boiler_pochatkovii_stan`: `off` (перевірено).
@@ -114,6 +116,7 @@
 * Датчик води: Tuya TS0207 (`binary_sensor.datchik_vitoku_vodi_water_leak`). Тривога закріплена (sticky, повтор при змахуванні). Датчик один. **[?]** сповіщення про недоступність датчика відсутнє.
 * Фільтр води: картридж 10″ на вводі холодної води. Дата заміни `input_datetime.data_ostannoi_zamini_filtra_vodi`, ресурс `input_number.resurs_filtra_vodi_dniv` (30/45/60 дн., витрата 0.37 м³/добу). Сенсори `sensor.filtr_vodi_zalishok_resursu`, `_dniv_do_zamini`, `_propushcheno_vodi` (template у configuration.yaml, не в UI). Скидання: кнопка `input_button.skidannia_resursu_filtra_vodi` (автоматизація) і `script.skidannia_filtra_vodi`.
 * Коридорна люстра: `switch.svitlo_prokhidne`. Кнопка Z2M (топік `zigbee2mqtt/Вимикач світло прохідне (коридор)/action`): single = увімкнути, double = вимкнути.
+* Холодильник: розетка ЕнерджіВампір (`sensor.garderobna_enerdzhivampir_*`, tuya_local, дані раз на ~60 с). Компресор `binary_sensor.kholodilnik_kompresor` (понад 30 Вт). Норма (21-27.11): робота 50-70 хв при 55-75 Вт, пауза 50-55 хв, частка ~50%, середня потужність 28-31 Вт (≈0.7 кВт·год/добу); на старті циклу буває пік до ~430 Вт. Контроль: автоматизація «Холодильник: Контроль дверцят…» (2,5 / 4 / 8 год без зупинки → Telegram; після зупинки підсумок і `counter.kholodilnik_vidkhilennia`). Template `sensor.enerdzhivampir_energiia` не накопичує енергію **[?]**, для обліку не використовувати.
 * Робот-пилосос: Dreame (`vacuum.robik_2_0`). Нагадування про мішок: початок з 85-го дня, критично з 90-го, `input_datetime.data_zamini_mishka_pilososa`.
 
 ## 6. Сповіщення, Telegram, ШІ
@@ -142,7 +145,16 @@
 | `input_number.s1_energiia_na_starti_navantazhennia` | Лічильник S1 на початку навантаження |
 | `input_number.zegor_zariad` | Розрахунковий заряд ZEGOR, % |
 | `input_boolean.rezhim_blekautu` | Синхронізується зі станом: on, коли не «Мережа» |
+| `binary_sensor.kholodilnik_kompresor` | Компресор холодильника працює (threshold, понад 30 Вт, гістерезис 5) |
+| `sensor.kholodilnik_robota_kompresora_24_god` | Частка роботи компресора за 24 год, % (history_stats) |
+| `counter.kholodilnik_vidkhilennia` | Кількість зафіксованих відхилень холодильника |
+| `input_boolean.kholodilnik_vidkhilennia_trivaie` | Службовий: триває відхилення (надіслано попередження) |
 | `input_number.zariad_river_600` | Розрахунковий заряд River, % |
+| `input_datetime.boiler_vechirnie_vikno_pochatok`, `_kinets` | Вечірнє вікно бойлера (20:30-21:30) |
+| `input_datetime.boiler_data_obslugovuvannia` | Дата останнього обслуговування бойлера |
+| `input_number.boiler_interval_obslugovuvannia` | Інтервал обслуговування бойлера, міс (12) |
+| `input_button.boiler_obslugovuvannia_vikonano` | Записати сьогоднішню дату обслуговування |
+| `sensor.boiler_dniv_do_obslugovuvannia` | Днів до обслуговування (template helper) |
 | `input_number.zegor_startovi_kvt`, `input_number.zegor_pochatkovii_zariad` | Застарілі (старий облік ZEGOR), до видалення в P11 |
 | `input_number.resurs_filtra_vodi_dniv` | Ліміт ресурсу фільтра, днів |
 | `input_datetime.data_ostannoi_zamini_filtra_vodi` | Дата заміни фільтра води |
@@ -154,7 +166,7 @@
 
 `scenes.yaml` порожній. У `configuration.yaml` залишився застарілий template `sensor.zegor_2400_zariad_batarei` (unique_id `zegor_2400_battery_level`) зі старими `stantsiia_zegor_*`: до видалення.
 
-## 9. Реєстр автоматизацій (19)
+## 9. Реєстр автоматизацій (21)
 
 | # | Назва | id | mode |
 |-|-|-|-|
@@ -177,6 +189,8 @@
 | 17 | Водопостачання: Фіксація заміни фільтра | 1793713336341 | single |
 | 18 | Електромережа: Стан живлення | power_state_machine | queued (10) |
 | 19 | Резерв: Визначення станції та облік ZEGOR | reserve_station_detect | queued (10) |
+| 20 | Холодильник: Контроль дверцят за роботою компресора | 1795805849916 | queued (5) |
+| 21 | Сервіс: Нагадування про обслуговування бойлера | 1795813542005 | single |
 
 Видалено 27.11.2026: «Електромережа: Швидке виявлення блекауту» (`blackout_fast_detect`), логіка в №18.
 
